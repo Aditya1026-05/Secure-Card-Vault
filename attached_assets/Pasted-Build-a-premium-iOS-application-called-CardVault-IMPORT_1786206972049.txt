@@ -1,0 +1,263 @@
+Build a premium iOS application called CardVault.
+
+IMPORTANT:
+This is NOT a banking app, fintech dashboard, expense tracker, or payment app.
+
+CardVault is a luxury digital card vault that allows users to store and instantly access cards such as:
+- Library Cards
+- Student IDs
+- Gym Membership Cards
+- Loyalty Cards
+- Club Membership Cards
+- Parking Cards
+- Insurance Cards
+- Credit/Debit Cards (view-only reference)
+
+The design should feel like a combination of:
+- Apple Wallet
+- CRED
+- Arc Browser
+- Linear
+- Nothing OS
+
+Design Language:
+- Dark mode only
+- Matte black background
+- Premium glassmorphism
+- Soft shadows
+- Subtle gradients
+- Rounded corners
+- Floating elements
+- High-end Apple-quality animations
+- Clean typography
+- Minimal and futuristic
+- Apple Design Award level quality
+
+Avoid:
+- Generic fintech dashboards
+- Tables
+- Statistics
+- Analytics
+- Bright colors
+- Material Design appearance
+- Business software look
+
+==================================================
+HOME SCREEN
+==================================================
+
+The entire app revolves around cards.
+
+Top Section:
+Title: CardVault
+Subtitle: Your cards, one tap away
+
+Top Right:
+A floating glassmorphism container called:
+
+"Active Island Card"
+
+Purpose:
+Represents the card currently pinned to Dynamic Island.
+
+Empty State:
+- "No card selected"
+- "Drag a card here"
+
+Selected State:
+- Card icon
+- Card title
+- Active indicator
+- Green glowing status dot
+
+==================================================
+CARD STACK
+==================================================
+
+Center of screen.
+
+This is the main hero component.
+
+Display a floating stack of premium cards.
+
+Requirements:
+- Top card fully visible
+- Other cards partially visible underneath
+- Cards overlap naturally
+- Premium depth and shadows
+- Floating effect
+
+Interaction:
+- Swipe left/right to move between cards
+- Smooth spring animations
+- Apple Wallet style movement
+
+==================================================
+CARD FRONT
+==================================================
+
+Each card front displays:
+
+- Card title
+- Card holder name
+- Institution name
+- Category
+- Premium visual design
+
+Example:
+
+THAPAR LIBRARY
+
+Aditya Tayal
+
+Library Access
+
+The card should look like a luxury physical card.
+
+==================================================
+CARD BACK
+==================================================
+
+Tap card to flip.
+
+Use realistic 3D flip animation.
+
+Back side contains:
+
+- Barcode
+- QR code (optional)
+- Card number
+- Additional details
+
+Example:
+
+[ BARCODE ]
+
+102306233
+
+Barcode should be centered and large.
+
+==================================================
+DRAG AND DROP
+==================================================
+
+User can drag any card.
+
+When dragging:
+- Card enlarges slightly
+- Background blurs
+- Active Island zone glows
+
+When dropped into Active Island zone:
+- Card animates into the container
+- Success animation
+- Active indicator appears
+- Card becomes the active Dynamic Island card
+
+This interaction should feel magical and premium.
+
+==================================================
+FLOATING ACTION BUTTON
+==================================================
+
+Bottom center.
+
+Large floating glassmorphism button.
+
+Contains:
++ icon
+
+Purpose:
+Open Add Card screen.
+
+==================================================
+ADD CARD SCREEN
+==================================================
+
+Beautiful card creation experience.
+
+Fields:
+- Card Title
+- Card Holder Name
+- Card Number
+- Barcode Value
+- Card Type
+
+Card Types:
+- Library
+- Student ID
+- Gym
+- Membership
+- Credit Card
+- Debit Card
+- Insurance
+- Custom
+
+Live card preview updates while typing.
+
+==================================================
+DYNAMIC ISLAND PREVIEW
+==================================================
+
+Create a visual simulation section.
+
+Compact State:
+
+📚 Library Card
+
+Expanded State:
+
+Library Card
+
+[ BARCODE ]
+
+102306233
+
+Animation concept:
+
+Dynamic Island
+      ↓
+Card emerges from island
+      ↓
+Expanded card view
+
+==================================================
+MOTION DESIGN
+==================================================
+
+Use:
+- Spring animations
+- Matched geometry effects
+- Layer depth
+- Blur transitions
+- Card elevation effects
+- Fluid movement
+
+Everything should feel premium and alive.
+
+==================================================
+OUTPUT
+==================================================
+
+Generate:
+1. Home Screen
+2. Card Stack
+3. Swipe Interaction
+4. Card Flip Interaction
+5. Drag To Active Island Interaction
+6. Add Card Screen
+7. Dynamic Island Preview
+8. Empty States
+9. Filled States
+10. Premium iOS Design System
+
+If generating code:
+Use SwiftUI.
+Use SwiftData.
+Use mock data only.
+No backend.
+No authentication.
+No payments.
+No cloud sync.
+
+Focus entirely on creating an Apple-quality frontend experience first.

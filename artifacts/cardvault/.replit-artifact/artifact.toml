@@ -1,0 +1,24 @@
+kind = "mobile"
+previewPath = "/"
+title = "CardVault"
+description = "A premium dark-mode iOS card vault for storing and instantly accessing library cards, IDs, memberships, loyalty cards, insurance cards, and view-only payment references. Frontend-only with local mock data and no authentication, payments, cloud sync, or backend."
+version = "1.0.0"
+id = "artifacts/cardvault"
+router = "expo-domain"
+
+[[services]]
+name = "expo"
+ensurePreviewReachable = "/status"
+paths = [ "/" ]
+localPort = 25453
+
+[services.development]
+run = "pnpm --filter @workspace/cardvault run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/cardvault", "run", "build" ]
+run = [ "pnpm", "--filter", "@workspace/cardvault", "run", "serve" ]
+
+[services.env]
+PORT = "25453"
+BASE_PATH = "/"
