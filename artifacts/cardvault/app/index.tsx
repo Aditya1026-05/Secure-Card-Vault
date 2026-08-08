@@ -125,17 +125,17 @@ function FauxQr({ value }: { value: string }) {
 function CardFace({ card, back }: { card: VaultCard; back: boolean }) {
   const colors = useColors();
   const gradient = {
-    green: [colors.primary, '#5AB67C'] as const,
-    lavender: ['#D8C6F2', '#9386C5'] as const,
-    blue: ['#B7DCE2', '#608D99'] as const,
-    orange: ['#F1C29B', '#A66D4E'] as const,
-    graphite: ['#68756E', '#27332D'] as const,
+    green: ['#F4F3EF', '#A6A6A3'] as const,
+    lavender: ['#E7E7E3', '#878784'] as const,
+    blue: ['#D2D2D0', '#6B6B69'] as const,
+    orange: ['#BDBDB9', '#575755'] as const,
+    graphite: ['#757572', '#171717'] as const,
   }[card.color];
 
   if (back) {
     return (
       <LinearGradient colors={gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.cardFace}>
-        <View style={[styles.magStripe, { backgroundColor: 'rgba(7, 16, 11, 0.62)' }]} />
+        <View style={[styles.magStripe, { backgroundColor: 'rgba(11, 11, 11, 0.62)' }]} />
         <View style={styles.backContent}>
           <View style={styles.backTopline}>
             <Text style={[styles.cardMicro, { color: colors.ink }]}>CARDVAULT / SECURE VIEW</Text>
@@ -144,9 +144,10 @@ function CardFace({ card, back }: { card: VaultCard; back: boolean }) {
           <Barcode value={card.barcode} />
           <View style={styles.backBottom}>
             <Text style={[styles.backNumber, { color: colors.ink }]}>{card.number}</Text>
-            <Text style={[styles.backDetail, { color: 'rgba(7, 16, 11, 0.72)' }]}>Tap to return</Text>
+            <Text style={[styles.backDetail, { color: 'rgba(11, 11, 11, 0.72)' }]}>Tap to return</Text>
           </View>
         </View>
+        <View style={styles.metalEdge} pointerEvents="none" />
       </LinearGradient>
     );
   }
@@ -155,7 +156,7 @@ function CardFace({ card, back }: { card: VaultCard; back: boolean }) {
     <LinearGradient colors={gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.cardFace}>
       <View style={styles.cardGlow} />
       <View style={styles.cardTop}>
-        <View style={[styles.brandMark, { backgroundColor: 'rgba(7, 16, 11, 0.15)' }]}>
+        <View style={[styles.brandMark, { backgroundColor: 'rgba(11, 11, 11, 0.15)' }]}>
           <MaterialCommunityIcons name={categoryIcons[card.category]} size={18} color={colors.ink} />
         </View>
         <Text style={[styles.cardMicro, { color: colors.ink }]}>{card.category.toUpperCase()}</Text>
@@ -163,17 +164,19 @@ function CardFace({ card, back }: { card: VaultCard; back: boolean }) {
       </View>
       <View style={styles.cardMiddle}>
         <Text numberOfLines={1} style={[styles.cardTitle, { color: colors.ink }]}>{card.title}</Text>
-        <Text numberOfLines={1} style={[styles.institution, { color: 'rgba(7, 16, 11, 0.63)' }]}>{card.institution}</Text>
+        <Text numberOfLines={1} style={[styles.institution, { color: 'rgba(11, 11, 11, 0.63)' }]}>{card.institution}</Text>
       </View>
       <View style={styles.cardBottom}>
         <View>
-          <Text style={[styles.cardLabel, { color: 'rgba(7, 16, 11, 0.58)' }]}>CARDHOLDER</Text>
+          <Text style={[styles.cardLabel, { color: 'rgba(11, 11, 11, 0.58)' }]}>CARDHOLDER</Text>
           <Text style={[styles.holder, { color: colors.ink }]}>{card.holder}</Text>
         </View>
         <View style={styles.chip}>
           <View style={styles.chipLine} /><View style={styles.chipLine} /><View style={styles.chipLine} />
         </View>
       </View>
+      <View style={styles.metalSheen} pointerEvents="none" />
+      <View style={styles.metalEdge} pointerEvents="none" />
     </LinearGradient>
   );
 }
@@ -182,12 +185,14 @@ function VaultCardView({
   card,
   onPress,
   onDrop,
+  onVerticalSwipe,
   index,
   selected,
 }: {
   card: VaultCard;
   onPress: () => void;
   onDrop: () => void;
+  onVerticalSwipe: (direction: 1 | -1) => void;
   index: number;
   selected: boolean;
 }) {
@@ -195,27 +200,46 @@ function VaultCardView({
   const [flipped, setFlipped] = useState(false);
   const scale = useRef(new Animated.Value(1)).current;
   const translateX = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(0)).current;
   const rotateY = useRef(new Animated.Value(0)).current;
+  const dynamicTilt = useRef(new Animated.Value(0)).current;
   const pan = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => index === 0,
-      onMoveShouldSetPanResponder: (_, gesture) => index === 0 && Math.abs(gesture.dx) > 8,
+      onMoveShouldSetPanResponder: (_, gesture) => index === 0 && (Math.abs(gesture.dy) > 8 || Math.abs(gesture.dx) > 8),
       onPanResponderGrant: () => {
         Animated.spring(scale, { toValue: 1.04, useNativeDriver: true, speed: 22, bounciness: 8 }).start();
         void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       },
-      onPanResponderMove: (_, gesture) => translateX.setValue(gesture.dx),
+      onPanResponderMove: (_, gesture) => {
+        translateX.setValue(gesture.dx * 0.22);
+        translateY.setValue(gesture.dy);
+        dynamicTilt.setValue(gesture.dx * 0.04);
+      },
       onPanResponderRelease: (_, gesture) => {
-        const threshold = SCREEN_WIDTH * 0.22;
-        if (Math.abs(gesture.dx) > threshold) {
+        const verticalThreshold = 72;
+        const horizontalThreshold = SCREEN_WIDTH * 0.22;
+        if (Math.abs(gesture.dy) > verticalThreshold && Math.abs(gesture.dy) > Math.abs(gesture.dx)) {
+          Animated.timing(translateY, { toValue: gesture.dy > 0 ? SCREEN_WIDTH : -SCREEN_WIDTH, duration: 210, useNativeDriver: true }).start(() => {
+            onVerticalSwipe(gesture.dy > 0 ? -1 : 1);
+            translateY.setValue(0);
+            translateX.setValue(0);
+            dynamicTilt.setValue(0);
+            scale.setValue(1);
+          });
+        } else if (Math.abs(gesture.dx) > horizontalThreshold) {
           Animated.timing(translateX, { toValue: gesture.dx > 0 ? SCREEN_WIDTH : -SCREEN_WIDTH, duration: 180, useNativeDriver: true }).start(() => {
             onDrop();
             translateX.setValue(0);
+            translateY.setValue(0);
+            dynamicTilt.setValue(0);
             scale.setValue(1);
           });
         } else {
           Animated.parallel([
             Animated.spring(translateX, { toValue: 0, useNativeDriver: true, speed: 18, bounciness: 7 }),
+            Animated.spring(translateY, { toValue: 0, useNativeDriver: true, speed: 18, bounciness: 7 }),
+            Animated.spring(dynamicTilt, { toValue: 0, useNativeDriver: true, speed: 18, bounciness: 7 }),
             Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 18, bounciness: 7 }),
           ]).start();
         }
@@ -235,13 +259,15 @@ function VaultCardView({
   const backOpacity = rotateY.interpolate({ inputRange: [0, 90, 180], outputRange: [0, 0, 1] });
   const frontRotate = rotateY.interpolate({ inputRange: [0, 180], outputRange: ['0deg', '180deg'] });
   const backRotate = rotateY.interpolate({ inputRange: [0, 180], outputRange: ['180deg', '360deg'] });
+  const tilt = dynamicTilt.interpolate({ inputRange: [-30, 30], outputRange: ['-8deg', '8deg'] });
+  const stackTilt = index === 0 ? '-2.4deg' : index === 1 ? '3.4deg' : '-4.5deg';
 
   return (
     <Animated.View
       {...pan.panHandlers}
       style={[
         styles.stackCard,
-        { zIndex: 20 - index, transform: [{ translateY: index * 12 }, { translateX }, { scale }] },
+        { zIndex: 20 - index, transform: [{ perspective: 1200 }, { translateY: index * 14 }, { translateY }, { translateX }, { rotateZ: index === 0 ? tilt : stackTilt }, { rotateX: index === 0 ? '3deg' : '1deg' }, { scale }] },
         index > 0 && styles.peekingCard,
       ]}
     >
@@ -261,7 +287,7 @@ function VaultCardView({
 function ActiveIsland({ card, onPress }: { card: VaultCard | null; onPress: () => void }) {
   const colors = useColors();
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.island, pressed && styles.pressed]} accessibilityRole="button" accessibilityLabel="Active Island Card">
+      <Pressable onPress={onPress} style={({ pressed }) => [styles.island, pressed && styles.pressed]} accessibilityRole="button" accessibilityLabel="Active Island Card">
       <BlurView intensity={42} tint="dark" style={StyleSheet.absoluteFill} />
       <View style={styles.islandHeader}>
         <View style={styles.islandTitleRow}>
@@ -430,9 +456,13 @@ function HomeScreen() {
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
+  const handleVerticalSwipe = (direction: 1 | -1) => {
+    shiftCard(direction);
+  };
+
   return (
     <View style={[styles.screen, { paddingTop: Math.max(insets.top, Platform.OS === 'web' ? 67 : 12) }]}>
-      <LinearGradient colors={['#111A15', colors.background, colors.background]} locations={[0, 0.48, 1]} style={StyleSheet.absoluteFill} />
+      <LinearGradient colors={['#1B1B1A', colors.background, colors.background]} locations={[0, 0.48, 1]} style={StyleSheet.absoluteFill} />
       <View style={styles.ambientOrb} />
       <ScrollView
         contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, Platform.OS === 'web' ? 34 : 18) + 118 }}
@@ -477,6 +507,7 @@ function HomeScreen() {
                   selected={activeId === card.id}
                   onPress={() => setActiveId(card.id)}
                   onDrop={index === 0 ? handleDrop : () => undefined}
+                  onVerticalSwipe={index === 0 ? handleVerticalSwipe : () => undefined}
                 />
               );
             })
@@ -484,7 +515,7 @@ function HomeScreen() {
             <View style={styles.emptyStack}><MaterialCommunityIcons name="cards-outline" size={34} color={colors.mutedForeground} /><Text style={styles.emptyTitle}>Your vault is waiting</Text><Text style={styles.emptyBody}>Add your first card below.</Text></View>
           )}
         </View>
-        <View style={styles.stackHint}><Ionicons name="swap-horizontal" size={16} color={colors.mutedForeground} /><Text style={styles.hintText}>Swipe to browse  ·  Tap to flip</Text></View>
+        <View style={styles.stackHint}><Ionicons name="swap-vertical" size={16} color={colors.mutedForeground} /><Text style={styles.hintText}>Swipe up or down  ·  Tap to flip</Text></View>
         <View style={styles.collectionRow}>
           <Text style={styles.collectionLabel}>ALL CARDS</Text>
           <Pressable onPress={() => setAddVisible(true)} style={({ pressed }) => [styles.addSmall, pressed && styles.pressed]}><Ionicons name="add" size={16} color={colors.primary} /><Text style={styles.addSmallText}>New card</Text></Pressable>
@@ -528,11 +559,11 @@ const styles = StyleSheet.create({
   subtitle: { color: '#88958D', fontSize: 13, marginTop: 7, letterSpacing: 0.1 },
   iconButton: { width: 42, height: 42, borderRadius: 21, backgroundColor: 'rgba(28, 38, 33, 0.76)', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#27332D' },
   pressed: { opacity: 0.68 },
-  island: { marginHorizontal: 20, minHeight: 76, overflow: 'hidden', borderRadius: 23, borderWidth: 1, borderColor: '#27332D', backgroundColor: 'rgba(28, 38, 33, 0.76)', padding: 14 },
+  island: { marginHorizontal: 20, minHeight: 76, overflow: 'hidden', borderRadius: 23, borderWidth: 1, borderColor: '#343434', backgroundColor: 'rgba(29, 29, 29, 0.78)', padding: 14 },
   islandHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   islandTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   islandEyebrow: { fontSize: 10, letterSpacing: 1.7, color: '#88958D', fontWeight: '700' },
-  liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#53615A' },
+  liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#656565' },
   islandCardRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 11 },
   islandIcon: { width: 28, height: 28, borderRadius: 9, justifyContent: 'center', alignItems: 'center' },
   islandCardName: { color: '#F5F7F6', fontSize: 12, fontWeight: '700', letterSpacing: 0.5 },
@@ -541,11 +572,11 @@ const styles = StyleSheet.create({
   islandEmptyTitle: { color: '#D6E3DB', fontSize: 13, fontWeight: '600' },
   islandEmptyBody: { color: '#88958D', fontSize: 11, marginTop: 3 },
   heroHeading: { marginHorizontal: 20, marginTop: 38, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },
-  heroKicker: { color: '#6C7A72', fontSize: 10, letterSpacing: 2.1, fontWeight: '700' },
+  heroKicker: { color: '#858581', fontSize: 10, letterSpacing: 2.1, fontWeight: '700' },
   heroTitle: { color: '#F5F7F6', fontSize: 33, lineHeight: 39, fontWeight: '700', letterSpacing: -1.1, marginTop: 6 },
   countPill: { alignItems: 'flex-end', paddingBottom: 2 },
-  countText: { color: '#B9F2CB', fontSize: 18, fontWeight: '700', letterSpacing: 1 },
-  countLabel: { color: '#6C7A72', fontSize: 9, letterSpacing: 1.7, marginTop: 1 },
+  countText: { color: '#F1F0EC', fontSize: 18, fontWeight: '700', letterSpacing: 1 },
+  countLabel: { color: '#858581', fontSize: 9, letterSpacing: 1.7, marginTop: 1 },
   stackArea: { height: CARD_HEIGHT + 34, marginTop: 22, alignItems: 'center', justifyContent: 'flex-start' },
   stackCard: { position: 'absolute', width: CARD_WIDTH, height: CARD_HEIGHT, borderRadius: 25, shadowColor: '#000', shadowOffset: { width: 0, height: 18 }, shadowOpacity: 0.42, shadowRadius: 24, elevation: 10 },
   peekingCard: { shadowOpacity: 0.2, shadowRadius: 15 },
@@ -554,7 +585,9 @@ const styles = StyleSheet.create({
   cardBackLayer: { backfaceVisibility: 'hidden' },
   selectedRing: { position: 'absolute', inset: -3, borderWidth: 1, borderRadius: 28, opacity: 0.45 },
   cardFace: { flex: 1, borderRadius: 25, padding: 21, overflow: 'hidden' },
-  cardGlow: { position: 'absolute', width: 210, height: 210, right: -80, top: -80, borderRadius: 110, backgroundColor: 'rgba(255,255,255,0.17)' },
+  cardGlow: { position: 'absolute', width: 210, height: 210, right: -80, top: -80, borderRadius: 110, backgroundColor: 'rgba(255,255,255,0.21)' },
+  metalSheen: { position: 'absolute', top: -40, right: -90, width: 280, height: 110, borderRadius: 100, backgroundColor: 'rgba(255,255,255,0.18)', transform: [{ rotate: '-22deg' }] },
+  metalEdge: { position: 'absolute', inset: 0, borderRadius: 25, borderWidth: 1, borderColor: 'rgba(255,255,255,0.48)' },
   cardTop: { flexDirection: 'row', alignItems: 'center', gap: 9 },
   brandMark: { width: 31, height: 31, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
   cardMicro: { fontSize: 9, letterSpacing: 1.8, fontWeight: '700' },
@@ -565,15 +598,15 @@ const styles = StyleSheet.create({
   cardBottom: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' },
   cardLabel: { fontSize: 8, fontWeight: '700', letterSpacing: 1.2, marginBottom: 3 },
   holder: { fontSize: 12, fontWeight: '600', letterSpacing: 0.2 },
-  chip: { width: 35, height: 25, borderRadius: 6, borderWidth: 1, borderColor: 'rgba(7,16,11,0.34)', padding: 4, gap: 3, justifyContent: 'center' },
-  chipLine: { height: 1, backgroundColor: 'rgba(7,16,11,0.26)' },
+  chip: { width: 35, height: 25, borderRadius: 6, borderWidth: 1, borderColor: 'rgba(11,11,11,0.34)', padding: 4, gap: 3, justifyContent: 'center' },
+  chipLine: { height: 1, backgroundColor: 'rgba(11,11,11,0.26)' },
   magStripe: { position: 'absolute', top: 48, left: 0, right: 0, height: 42 },
   backContent: { flex: 1, justifyContent: 'flex-end' },
   backTopline: { position: 'absolute', top: 1, left: 0, right: 0, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   barcode: { paddingVertical: 10, paddingHorizontal: 12 },
   barcodeBars: { height: 31, flexDirection: 'row', alignItems: 'stretch', justifyContent: 'center', gap: 2 },
   barcodeValue: { fontSize: 10, textAlign: 'center', marginTop: 6, letterSpacing: 2.2, fontWeight: '600' },
-  barcodeCompact: { height: 37, marginTop: 10, paddingVertical: 5, paddingHorizontal: 8, backgroundColor: 'rgba(7, 16, 11, 0.1)', borderRadius: 8 },
+  barcodeCompact: { height: 37, marginTop: 10, paddingVertical: 5, paddingHorizontal: 8, backgroundColor: 'rgba(11, 11, 11, 0.1)', borderRadius: 8 },
   bar: { minWidth: 1, borderRadius: 0.5 },
   qr: { width: 34, height: 34, padding: 3, display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 1 },
   qrCell: { width: 2.65, height: 2.65 },
@@ -581,27 +614,27 @@ const styles = StyleSheet.create({
   backNumber: { fontSize: 14, fontWeight: '700', letterSpacing: 1.4 },
   backDetail: { fontSize: 9, fontWeight: '600' },
   stackHint: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8, marginTop: 9 },
-  hintText: { color: '#6C7A72', fontSize: 11, letterSpacing: 0.2 },
+  hintText: { color: '#858581', fontSize: 11, letterSpacing: 0.2 },
   collectionRow: { marginHorizontal: 20, marginTop: 42, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  collectionLabel: { color: '#6C7A72', fontSize: 10, letterSpacing: 2, fontWeight: '700' },
+  collectionLabel: { color: '#858581', fontSize: 10, letterSpacing: 2, fontWeight: '700' },
   addSmall: { flexDirection: 'row', alignItems: 'center', gap: 5, padding: 5 },
-  addSmallText: { color: '#9AE5B4', fontSize: 12, fontWeight: '600' },
+  addSmallText: { color: '#F1F0EC', fontSize: 12, fontWeight: '600' },
   miniList: { marginHorizontal: 20, marginTop: 12, gap: 9 },
-  miniCard: { minHeight: 62, borderRadius: 17, borderWidth: 1, borderColor: '#1D2721', backgroundColor: 'rgba(18, 23, 21, 0.82)', paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 11 },
+  miniCard: { minHeight: 62, borderRadius: 17, borderWidth: 1, borderColor: '#2B2B2B', backgroundColor: 'rgba(21, 21, 21, 0.82)', paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 11 },
   miniIcon: { width: 36, height: 36, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
   miniTitle: { color: '#E9F1EC', fontSize: 12, fontWeight: '700', letterSpacing: 0.4 },
   miniSubtitle: { color: '#78857D', fontSize: 11, marginTop: 3 },
-  fabDock: { position: 'absolute', alignSelf: 'center', width: 74, height: 74, borderRadius: 25, padding: 7, overflow: 'hidden', borderWidth: 1, borderColor: '#304238', backgroundColor: 'rgba(28, 38, 33, 0.76)', shadowColor: '#000', shadowOpacity: 0.4, shadowRadius: 20, shadowOffset: { width: 0, height: 10 }, elevation: 12 },
-  fab: { flex: 1, borderRadius: 19, backgroundColor: '#9AE5B4', justifyContent: 'center', alignItems: 'center' },
+  fabDock: { position: 'absolute', alignSelf: 'center', width: 74, height: 74, borderRadius: 25, padding: 7, overflow: 'hidden', borderWidth: 1, borderColor: '#484844', backgroundColor: 'rgba(29, 29, 29, 0.78)', shadowColor: '#000', shadowOpacity: 0.4, shadowRadius: 20, shadowOffset: { width: 0, height: 10 }, elevation: 12 },
+  fab: { flex: 1, borderRadius: 19, backgroundColor: '#F1F0EC', justifyContent: 'center', alignItems: 'center' },
   fabPressed: { transform: [{ scale: 0.94 }], opacity: 0.9 },
-  islandExpanded: { marginHorizontal: 20, marginTop: 10, padding: 16, borderRadius: 20, backgroundColor: 'rgba(19, 29, 23, 0.92)', borderWidth: 1, borderColor: '#2A3B30' },
+  islandExpanded: { marginHorizontal: 20, marginTop: 10, padding: 16, borderRadius: 20, backgroundColor: 'rgba(23, 23, 23, 0.92)', borderWidth: 1, borderColor: '#363636' },
   expandedTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  expandedEyebrow: { color: '#6C7A72', fontSize: 9, letterSpacing: 1.7, fontWeight: '700' },
-  expandedTitle: { color: '#DDEBE1', fontSize: 14, fontWeight: '600', marginTop: 4 },
+  expandedEyebrow: { color: '#858581', fontSize: 9, letterSpacing: 1.7, fontWeight: '700' },
+  expandedTitle: { color: '#E2E2DE', fontSize: 14, fontWeight: '600', marginTop: 4 },
   expandedSignal: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
-  expandedSignalText: { color: '#9AE5B4', fontSize: 9, fontWeight: '700', letterSpacing: 1.2 },
-  expandedIslandPill: { alignSelf: 'center', marginTop: 15, minWidth: 150, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 20, backgroundColor: '#9AE5B4', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 },
-  expandedIslandText: { color: '#07100B', fontSize: 11, fontWeight: '700', letterSpacing: 0.7 },
+  expandedSignalText: { color: '#F1F0EC', fontSize: 9, fontWeight: '700', letterSpacing: 1.2 },
+  expandedIslandPill: { alignSelf: 'center', marginTop: 15, minWidth: 150, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 20, backgroundColor: '#F1F0EC', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 },
+  expandedIslandText: { color: '#0B0B0B', fontSize: 11, fontWeight: '700', letterSpacing: 0.7 },
   modalRoot: { flex: 1, justifyContent: 'flex-end' },
   modalScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.68)' },
   sheet: { maxHeight: '92%', backgroundColor: '#101613', borderTopLeftRadius: 30, borderTopRightRadius: 30, borderWidth: 1, borderBottomWidth: 0, borderColor: '#293A2F', paddingTop: 11 },
