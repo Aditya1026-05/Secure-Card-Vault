@@ -2,10 +2,13 @@ import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
-import React, { useMemo, useRef, useState } from 'react';
+import * as LocalAuthentication from 'expo-local-authentication';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Alert,
   Animated,
   Dimensions,
+  Easing,
   Keyboard,
   Modal,
   PanResponder,
@@ -74,31 +77,72 @@ function GlassButton({
   );
 }
 
-function Barcode({ value, compact = false }: { value: string; compact?: boolean }) {
+const CODE39_MAP: Record<string, string> = {
+  '0': '000110100', '1': '100100001', '2': '001100001', '3': '101100000',
+  '4': '000110001', '5': '100110000', '6': '001110000', '7': '000100101',
+  '8': '100100100', '9': '001100100', 'A': '100001001', 'B': '001001001',
+  'C': '101001000', 'D': '000011001', 'E': '100011000', 'F': '001011000',
+  'G': '000001101', 'H': '100001100', 'I': '001001100', 'J': '000011100',
+  'K': '100000011', 'L': '001000011', 'M': '101000010', 'N': '000010011',
+  'O': '100010010', 'P': '001010010', 'Q': '000000111', 'R': '100000110',
+  'S': '001000110', 'T': '000010110', 'U': '110000001', 'V': '011000001',
+  'W': '111000000', 'X': '010010001', 'Y': '110010000', 'Z': '011010000',
+  '-': '010000101', '.': '110000100', ' ': '011000100', '$': '010101000',
+  '/': '010100010', '+': '010001010', '%': '000101010', '*': '010010100',
+};
+
+function Barcode({ value, compact = false, height, color, scale = 1 }: { value: string; compact?: boolean; height?: number; color?: string; scale?: number }) {
   const colors = useColors();
-  const bars = useMemo(() => {
-    const source = value || '102306233';
-    return Array.from({ length: compact ? 32 : 54 }, (_, index) => {
-      const code = source.charCodeAt(index % source.length);
-      return 1 + ((code + index * 3) % (compact ? 2 : 3));
-    });
-  }, [value, compact]);
+  const barColor = color || (compact ? colors.ink : colors.foreground);
+  const spaceColor = 'transparent';
+
+  const elements = useMemo(() => {
+    const rawVal = (value || '102306233').toUpperCase();
+    const filtered = rawVal.split('').filter(c => CODE39_MAP[c] !== undefined).join('');
+    const finalStr = filtered.startsWith('*') && filtered.endsWith('*') ? filtered : `*${filtered}*`;
+
+    const result: Array<{ isBar: boolean; width: number }> = [];
+
+    for (let charIndex = 0; charIndex < finalStr.length; charIndex++) {
+      const char = finalStr[charIndex];
+      const pattern = CODE39_MAP[char];
+      if (!pattern) continue;
+
+      for (let i = 0; i < 9; i++) {
+        const isBar = i % 2 === 0;
+        const isWide = pattern[i] === '1';
+        result.push({
+          isBar,
+          width: isWide ? 2.5 : 1.0,
+        });
+      }
+
+      if (charIndex < finalStr.length - 1) {
+        result.push({
+          isBar: false,
+          width: 1.0,
+        });
+      }
+    }
+
+    return result;
+  }, [value]);
 
   return (
     <View style={[styles.barcode, compact && styles.barcodeCompact]}>
-      <View style={styles.barcodeBars}>
-        {bars.map((bar, index) => (
+      <View style={[styles.barcodeBars, height !== undefined && { height }, { gap: 0 }]}>
+        {elements.map((elem, index) => (
           <View
-            key={`${bar}-${index}`}
-            style={[
-              styles.bar,
-              { width: bar, backgroundColor: compact ? colors.ink : colors.foreground },
-              index % 7 === 0 && { marginRight: compact ? 2 : 4 },
-            ]}
+            key={index}
+            style={{
+              width: elem.width * scale,
+              backgroundColor: elem.isBar ? barColor : spaceColor,
+              height: '100%',
+            }}
           />
         ))}
       </View>
-      {!compact && <Text style={[styles.barcodeValue, { color: colors.foreground }]}>{value || '102306233'}</Text>}
+      {!compact && <Text style={[styles.barcodeValue, { color: barColor }]}>{value || '102306233'}</Text>}
     </View>
   );
 }
@@ -124,27 +168,144 @@ function FauxQr({ value }: { value: string }) {
 
 function CardFace({ card, back }: { card: VaultCard; back: boolean }) {
   const colors = useColors();
+  const { faceIdEnabled } = useCardVault();
+  const [isRevealed, setIsRevealed] = useState(false);
+
   const gradient = {
-    green: ['#F4F3EF', '#A6A6A3'] as const,
-    lavender: ['#E7E7E3', '#878784'] as const,
-    blue: ['#D2D2D0', '#6B6B69'] as const,
-    orange: ['#BDBDB9', '#575755'] as const,
-    graphite: ['#757572', '#171717'] as const,
+    green: [colors.metalTop, colors.metalBottom] as const,
+    lavender: ['#4A454D', '#101014'] as const,
+    blue: ['#37454B', '#0B1012'] as const,
+    orange: ['#4B4037', '#120F0D'] as const,
+    graphite: [colors.metalMid, colors.metalBottom] as const,
   }[card.color];
 
+  const handleRevealToggle = async () => {
+    if (isRevealed) {
+      setIsRevealed(false);
+      return;
+    }
+    if (!faceIdEnabled) {
+      setIsRevealed(true);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      return;
+    }
+    try {
+      const hasHardware = await LocalAuthentication.hasHardwareAsync();
+      const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+      if (hasHardware && isEnrolled) {
+        const result = await LocalAuthentication.authenticateAsync({
+          promptMessage: 'Authenticate to view secure card info',
+          fallbackLabel: 'Use Device Passcode',
+        });
+        if (result.success) {
+          setIsRevealed(true);
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } else {
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        }
+      } else {
+        setIsRevealed(true);
+      }
+    } catch {
+      setIsRevealed(true);
+    }
+  };
+
+  const isBankCard = card.category === 'Credit Card' || card.category === 'Debit Card';
+  const isLibraryOrStudent = card.category === 'Library' || card.category === 'Student ID';
+
   if (back) {
+    if (isBankCard) {
+      const maskedNumber = isRevealed 
+        ? card.number 
+        : card.number.replace(/\d(?=\d{4})/g, '•');
+      const maskedCVV = isRevealed ? (card.cvv || '•••') : '•••';
+      const maskedValidThru = isRevealed ? (card.validThru || '••/••') : '••/••';
+
+      return (
+        <LinearGradient colors={gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.cardFace}>
+          <View style={[styles.magStripe, { backgroundColor: 'rgba(11, 11, 11, 0.85)' }]} />
+          
+          <View style={styles.bankBackContent}>
+            {/* Signature Area */}
+            <View style={styles.signatureRow}>
+              <View style={styles.signatureStrip}>
+                <Text style={styles.signatureStripText}>Authorized Signature</Text>
+              </View>
+              <View style={styles.cvvBox}>
+                <Text style={styles.cvvLabel}>CVV</Text>
+                <Text style={styles.cvvText}>{maskedCVV}</Text>
+              </View>
+            </View>
+
+            {/* Card Info Area */}
+            <View style={styles.bankInfoBlock}>
+              <View style={styles.bankInfoLeft}>
+                <Text style={styles.bankNumberLabel}>CARD NUMBER</Text>
+                <Text style={[styles.bankNumberText, { color: colors.metalText }]}>{maskedNumber}</Text>
+                <View style={styles.bankRow}>
+                  <View style={{ marginRight: 24 }}>
+                    <Text style={styles.bankDetailLabel}>VALID THRU</Text>
+                    <Text style={[styles.bankDetailText, { color: colors.metalText }]}>{maskedValidThru}</Text>
+                  </View>
+                  <View>
+                    <Text style={styles.bankDetailLabel}>HOLDER</Text>
+                    <Text style={[styles.bankDetailText, { color: colors.metalText }]}>{card.holder.toUpperCase()}</Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Reveal Toggle Eye Button */}
+              <Pressable 
+                onPress={handleRevealToggle}
+                style={({ pressed }) => [
+                  styles.revealEyeBtn, 
+                  { backgroundColor: isRevealed ? 'rgba(112, 203, 139, 0.2)' : 'rgba(255, 255, 255, 0.08)' },
+                  pressed && styles.pressed
+                ]}
+              >
+                <Ionicons 
+                  name={isRevealed ? "eye-off-outline" : "eye-outline"} 
+                  size={18} 
+                  color={isRevealed ? "#70CB8B" : colors.metalText} 
+                />
+              </Pressable>
+            </View>
+          </View>
+
+          <View style={styles.metalEdge} pointerEvents="none" />
+        </LinearGradient>
+      );
+    }
+
+    if (isLibraryOrStudent) {
+      const barcodeValue = card.barcode || card.rollNo || card.number || '102306233';
+      return (
+        <LinearGradient colors={['#F5F7F6', '#E9F1EC']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.cardFace}>
+          <View style={styles.largeBarcodeBackContent}>
+            <Text style={styles.largeBarcodeHeader}>{card.category.toUpperCase()} BARCODE</Text>
+            <View style={styles.largeBarcodeWrapper}>
+              <Barcode value={barcodeValue} height={90} color={colors.ink} scale={1.6} />
+            </View>
+            <Text style={styles.largeBarcodeFooter}>ID: {barcodeValue}</Text>
+          </View>
+          <View style={[styles.metalEdge, { borderColor: 'rgba(0,0,0,0.06)' }]} pointerEvents="none" />
+        </LinearGradient>
+      );
+    }
+
     return (
       <LinearGradient colors={gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.cardFace}>
         <View style={[styles.magStripe, { backgroundColor: 'rgba(11, 11, 11, 0.62)' }]} />
         <View style={styles.backContent}>
           <View style={styles.backTopline}>
-            <Text style={[styles.cardMicro, { color: colors.ink }]}>CARDVAULT / SECURE VIEW</Text>
+            <Text style={[styles.cardMicro, { color: colors.metalText }]}>CARDVAULT / SECURE VIEW</Text>
             <FauxQr value={card.barcode} />
           </View>
           <Barcode value={card.barcode} />
           <View style={styles.backBottom}>
-            <Text style={[styles.backNumber, { color: colors.ink }]}>{card.number}</Text>
-            <Text style={[styles.backDetail, { color: 'rgba(11, 11, 11, 0.72)' }]}>Tap to return</Text>
+            <Text style={[styles.backNumber, { color: colors.metalText }]}>{card.number}</Text>
+            <Text style={[styles.backDetail, { color: colors.metalMuted }]}>Tap to return</Text>
           </View>
         </View>
         <View style={styles.metalEdge} pointerEvents="none" />
@@ -157,19 +318,27 @@ function CardFace({ card, back }: { card: VaultCard; back: boolean }) {
       <View style={styles.cardGlow} />
       <View style={styles.cardTop}>
         <View style={[styles.brandMark, { backgroundColor: 'rgba(11, 11, 11, 0.15)' }]}>
-          <MaterialCommunityIcons name={categoryIcons[card.category]} size={18} color={colors.ink} />
+          <MaterialCommunityIcons name={categoryIcons[card.category]} size={18} color={colors.metalText} />
         </View>
-        <Text style={[styles.cardMicro, { color: colors.ink }]}>{card.category.toUpperCase()}</Text>
-        <View style={styles.nfcMark}><Ionicons name="wifi" size={16} color={colors.ink} /></View>
+        <Text style={[styles.cardMicro, { color: colors.metalText }]}>{card.category.toUpperCase()}</Text>
+        <View style={styles.nfcMark}><Ionicons name="wifi" size={16} color={colors.metalText} /></View>
       </View>
       <View style={styles.cardMiddle}>
-        <Text numberOfLines={1} style={[styles.cardTitle, { color: colors.ink }]}>{card.title}</Text>
-        <Text numberOfLines={1} style={[styles.institution, { color: 'rgba(11, 11, 11, 0.63)' }]}>{card.institution}</Text>
+        <Text numberOfLines={1} style={[styles.cardTitle, { color: colors.metalText }]}>{card.title}</Text>
+        <Text numberOfLines={1} style={[styles.institution, { color: colors.metalMuted }]}>{card.institution}</Text>
       </View>
       <View style={styles.cardBottom}>
-        <View>
-          <Text style={[styles.cardLabel, { color: 'rgba(11, 11, 11, 0.58)' }]}>CARDHOLDER</Text>
-          <Text style={[styles.holder, { color: colors.ink }]}>{card.holder}</Text>
+        <View style={{ flexDirection: 'row', gap: 20, flex: 1, alignItems: 'flex-end' }}>
+          <View>
+            <Text style={[styles.cardLabel, { color: colors.metalMuted }]}>CARDHOLDER</Text>
+            <Text style={[styles.holder, { color: colors.metalText }]}>{card.holder}</Text>
+          </View>
+          {isLibraryOrStudent && (
+            <View style={{ marginLeft: 14 }}>
+              <Text style={[styles.cardLabel, { color: colors.metalMuted }]}>ROLL NO / ID</Text>
+              <Text style={[styles.holder, { color: colors.metalText }]}>{card.rollNo || card.number || '—'}</Text>
+            </View>
+          )}
         </View>
         <View style={styles.chip}>
           <View style={styles.chipLine} /><View style={styles.chipLine} /><View style={styles.chipLine} />
@@ -185,67 +354,196 @@ function VaultCardView({
   card,
   onPress,
   onDrop,
-  onVerticalSwipe,
+  onHorizontalSwipe,
+  onDropTarget,
+  onDragState,
   index,
   selected,
+  swipeDirection,
 }: {
   card: VaultCard;
   onPress: () => void;
   onDrop: () => void;
-  onVerticalSwipe: (direction: 1 | -1) => void;
+  onHorizontalSwipe: (direction: 1 | -1) => void;
+  onDropTarget: () => void;
+  onDragState: (dragging: boolean) => void;
   index: number;
   selected: boolean;
+  swipeDirection: 'left' | 'right' | null;
 }) {
   const colors = useColors();
   const [flipped, setFlipped] = useState(false);
+  const [isAnimatingToBack, setIsAnimatingToBack] = useState(false);
+  const [isLocalDragging, setIsLocalDragging] = useState(false);
+  const [isInDropZone, setIsInDropZone] = useState(false);
+  
   const scale = useRef(new Animated.Value(1)).current;
   const translateX = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(0)).current;
   const rotateY = useRef(new Animated.Value(0)).current;
-  const dynamicTilt = useRef(new Animated.Value(0)).current;
+
+  // Debug mount / unmount
+  useEffect(() => {
+    console.log(`[CardMount] Mounted card "${card.title}" at index ${index}`);
+    return () => {
+      console.log(`[CardMount] Unmounted card "${card.title}"`);
+    };
+  }, []);
+
+  // Store variables in refs to prevent stale closure capture in PanResponder
+  const indexRef = useRef(index);
+  indexRef.current = index;
+
+  const isInDropZoneRef = useRef(false);
+  const setInDropZone = (val: boolean) => {
+    setIsInDropZone(val);
+    isInDropZoneRef.current = val;
+  };
+
+  const callbacksRef = useRef({ onDrop, onHorizontalSwipe, onDropTarget, onDragState });
+  callbacksRef.current = { onDrop, onHorizontalSwipe, onDropTarget, onDragState };
+
   const pan = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => index === 0,
-      onMoveShouldSetPanResponder: (_, gesture) => index === 0 && (Math.abs(gesture.dy) > 8 || Math.abs(gesture.dx) > 8),
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, gesture) => indexRef.current === 0 && (Math.abs(gesture.dx) > 8 || Math.abs(gesture.dy) > 8),
       onPanResponderGrant: () => {
-        Animated.spring(scale, { toValue: 1.04, useNativeDriver: true, speed: 22, bounciness: 8 }).start();
+        Animated.spring(scale, { toValue: 0.8, useNativeDriver: true, speed: 22, bounciness: 8 }).start();
+        callbacksRef.current.onDragState(true);
         void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        setIsLocalDragging(true);
+        setInDropZone(false);
       },
       onPanResponderMove: (_, gesture) => {
-        translateX.setValue(gesture.dx * 0.22);
-        translateY.setValue(gesture.dy);
-        dynamicTilt.setValue(gesture.dx * 0.04);
+        translateX.setValue(gesture.dx);
+        
+        // Drag vertically with slight resistance for drop target gesture
+        const dragY = gesture.dy < 0 ? gesture.dy : gesture.dy * 0.22;
+        translateY.setValue(dragY);
+        
+        const inDropZone = gesture.dy < -110;
+        if (inDropZone !== isInDropZoneRef.current) {
+          setInDropZone(inDropZone);
+        }
       },
       onPanResponderRelease: (_, gesture) => {
-        const verticalThreshold = 72;
-        const horizontalThreshold = SCREEN_WIDTH * 0.22;
-        if (Math.abs(gesture.dy) > verticalThreshold && Math.abs(gesture.dy) > Math.abs(gesture.dx)) {
-          Animated.timing(translateY, { toValue: gesture.dy > 0 ? SCREEN_WIDTH : -SCREEN_WIDTH, duration: 210, useNativeDriver: true }).start(() => {
-            onVerticalSwipe(gesture.dy > 0 ? -1 : 1);
+        const horizontalThreshold = 60;
+        const draggingToTarget = gesture.dy < -110;
+        setIsLocalDragging(false);
+        setInDropZone(false);
+        if (draggingToTarget) {
+          Animated.parallel([
+            Animated.timing(translateY, { toValue: -140, duration: 200, useNativeDriver: true }),
+            Animated.timing(translateX, { toValue: 0, duration: 200, useNativeDriver: true }),
+            Animated.timing(scale, { toValue: 0.5, duration: 200, useNativeDriver: true }),
+          ]).start(() => {
+            callbacksRef.current.onDropTarget();
+            callbacksRef.current.onDragState(false);
             translateY.setValue(0);
             translateX.setValue(0);
-            dynamicTilt.setValue(0);
             scale.setValue(1);
           });
-        } else if (Math.abs(gesture.dx) > horizontalThreshold) {
-          Animated.timing(translateX, { toValue: gesture.dx > 0 ? SCREEN_WIDTH : -SCREEN_WIDTH, duration: 180, useNativeDriver: true }).start(() => {
-            onDrop();
+        } else if (gesture.dx < -horizontalThreshold && Math.abs(gesture.dx) > Math.abs(gesture.dy)) {
+          // Swipe LEFT (card to back of stack)
+          setIsAnimatingToBack(true);
+          callbacksRef.current.onDragState(true);
+          
+          Animated.parallel([
+            Animated.timing(translateX, {
+              toValue: -SCREEN_WIDTH,
+              duration: 200,
+              easing: Easing.out(Easing.quad),
+              useNativeDriver: true,
+            }),
+            Animated.timing(scale, {
+              toValue: 1.05,
+              duration: 200,
+              easing: Easing.out(Easing.quad),
+              useNativeDriver: true,
+            }),
+          ]).start(() => {
+            translateX.setValue(-SCREEN_WIDTH);
+            scale.setValue(1.05);
+            callbacksRef.current.onHorizontalSwipe(1);
+            
+            // Ultra-smooth spring return to stack bottom from left
+            Animated.parallel([
+              Animated.spring(translateX, {
+                toValue: 0,
+                damping: 15,
+                stiffness: 120,
+                mass: 0.8,
+                useNativeDriver: true,
+              }),
+              Animated.spring(scale, {
+                toValue: 1,
+                damping: 15,
+                stiffness: 120,
+                mass: 0.8,
+                useNativeDriver: true,
+              }),
+              Animated.spring(translateY, {
+                toValue: 0,
+                damping: 15,
+                stiffness: 120,
+                mass: 0.8,
+                useNativeDriver: true,
+              }),
+            ]).start(() => {
+              setIsAnimatingToBack(false);
+              callbacksRef.current.onDragState(false);
+            });
+          });
+        } else if (gesture.dx > horizontalThreshold && Math.abs(gesture.dx) > Math.abs(gesture.dy)) {
+          console.log(`[CardResponder] Swipe RIGHT detected on "${card.title}"`);
+          // Slide Card B to the right off-screen
+          Animated.parallel([
+            Animated.timing(translateX, {
+              toValue: SCREEN_WIDTH,
+              duration: 200,
+              easing: Easing.out(Easing.quad),
+              useNativeDriver: true,
+            }),
+          ]).start(() => {
             translateX.setValue(0);
-            translateY.setValue(0);
-            dynamicTilt.setValue(0);
             scale.setValue(1);
+            translateY.setValue(0);
+            callbacksRef.current.onHorizontalSwipe(-1);
+            callbacksRef.current.onDragState(false);
           });
         } else {
           Animated.parallel([
             Animated.spring(translateX, { toValue: 0, useNativeDriver: true, speed: 18, bounciness: 7 }),
             Animated.spring(translateY, { toValue: 0, useNativeDriver: true, speed: 18, bounciness: 7 }),
-            Animated.spring(dynamicTilt, { toValue: 0, useNativeDriver: true, speed: 18, bounciness: 7 }),
             Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 18, bounciness: 7 }),
-          ]).start();
+          ]).start(() => callbacksRef.current.onDragState(false));
         }
+      },
+      onPanResponderTerminate: () => {
+        setIsLocalDragging(false);
+        setInDropZone(false);
+        Animated.parallel([
+          Animated.spring(translateX, { toValue: 0, useNativeDriver: true, speed: 18, bounciness: 7 }),
+          Animated.spring(translateY, { toValue: 0, useNativeDriver: true, speed: 18, bounciness: 7 }),
+          Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 18, bounciness: 7 }),
+        ]).start(() => callbacksRef.current.onDragState(false));
       },
     }),
   ).current;
+
+  useEffect(() => {
+    if (index === 0 && swipeDirection === 'right') {
+      console.log(`[CardIndex] Swipe RIGHT transition: sliding "${card.title}" in from left to front`);
+      translateX.setValue(-SCREEN_WIDTH);
+      Animated.spring(translateX, {
+        toValue: 0,
+        damping: 16,
+        stiffness: 120,
+        mass: 0.8,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [index, swipeDirection]);
 
   const flip = () => {
     void Haptics.selectionAsync();
@@ -259,15 +557,38 @@ function VaultCardView({
   const backOpacity = rotateY.interpolate({ inputRange: [0, 90, 180], outputRange: [0, 0, 1] });
   const frontRotate = rotateY.interpolate({ inputRange: [0, 180], outputRange: ['0deg', '180deg'] });
   const backRotate = rotateY.interpolate({ inputRange: [0, 180], outputRange: ['180deg', '360deg'] });
-  const tilt = dynamicTilt.interpolate({ inputRange: [-30, 30], outputRange: ['-8deg', '8deg'] });
-  const stackTilt = index === 0 ? '-2.4deg' : index === 1 ? '3.4deg' : '-4.5deg';
+
+  const isVisible = index <= 2 || isAnimatingToBack;
+  const opacity = isVisible ? 1 : 0;
+  const stackTranslateY = Math.min(index, 2) * 14;
+  const stackScale = 1 - Math.min(index, 2) * 0.04;
+
+  const animatedScale = scale.interpolate({
+    inputRange: [0.9, 1.1],
+    outputRange: [0.9 * stackScale, 1.1 * stackScale],
+  });
+
+  // Dynamic zIndex calculations
+  let zIndex = 20 - index;
+  if (isAnimatingToBack) {
+    zIndex = 10; // Force behind deck when returning to back (swipe left)
+  }
 
   return (
     <Animated.View
       {...pan.panHandlers}
       style={[
         styles.stackCard,
-        { zIndex: 20 - index, transform: [{ perspective: 1200 }, { translateY: index * 14 }, { translateY }, { translateX }, { rotateZ: index === 0 ? tilt : stackTilt }, { rotateX: index === 0 ? '3deg' : '1deg' }, { scale }] },
+        {
+          zIndex,
+          opacity,
+          transform: [
+            { translateY: stackTranslateY },
+            { translateY },
+            { translateX },
+            { scale: animatedScale },
+          ],
+        },
         index > 0 && styles.peekingCard,
       ]}
     >
@@ -280,14 +601,92 @@ function VaultCardView({
         </Animated.View>
       </Pressable>
       {selected && <View style={[styles.selectedRing, { borderColor: colors.primary }]} pointerEvents="none" />}
+      {isLocalDragging && (
+        <View 
+          style={[
+            styles.dragIndicatorOverlay, 
+            isInDropZone && { backgroundColor: 'rgba(112, 203, 139, 0.25)' }
+          ]} 
+          pointerEvents="none"
+        >
+          <BlurView intensity={30} tint={isInDropZone ? "dark" : "light"} style={[styles.dragIndicatorBlur, isInDropZone && { borderColor: '#70CB8B' }]}>
+            <MaterialCommunityIcons 
+              name={isInDropZone ? "check-circle-outline" : "card-bulleted-outline"} 
+              size={20} 
+              color={isInDropZone ? "#70CB8B" : "#000000"} 
+            />
+            <Text style={[styles.dragIndicatorText, isInDropZone && { color: '#70CB8B' }]}>
+              {isInDropZone ? "RELEASE TO DROP" : "DRAGGING"}
+            </Text>
+          </BlurView>
+        </View>
+      )}
     </Animated.View>
   );
 }
 
-function ActiveIsland({ card, onPress }: { card: VaultCard | null; onPress: () => void }) {
+function ActiveIsland({
+  card,
+  onPress,
+  compact = false,
+  isDragging = false,
+  onDrop,
+}: {
+  card: VaultCard | null;
+  onPress: () => void;
+  compact?: boolean;
+  isDragging?: boolean;
+  onDrop?: () => void;
+}) {
   const colors = useColors();
+
+  if (compact) {
+    return (
+      <Pressable
+        onPress={onDrop ?? onPress}
+        style={({ pressed }) => [
+          styles.islandCompact,
+          isDragging && styles.islandDropActive,
+          pressed && styles.pressed,
+        ]}
+        accessibilityRole="button"
+        accessibilityLabel={card ? `Active card: ${card.title}` : 'No active card'}
+      >
+        <View style={styles.islandCompactContent}>
+          <View style={[styles.liveDotCompact, { backgroundColor: card ? colors.primary : '#4a4a4a' }]} />
+          {card ? (
+            <View style={styles.islandCompactRow}>
+              <MaterialCommunityIcons 
+                name={categoryIcons[card.category]} 
+                size={12} 
+                color={colors.primary} 
+                style={{ marginRight: 4 }} 
+              />
+              <Text style={styles.islandCompactTitle} numberOfLines={1}>
+                {card.title}
+              </Text>
+            </View>
+          ) : (
+            <Text style={styles.islandCompactTitle} numberOfLines={1}>
+              {isDragging ? 'DROP' : 'OFFLINE'}
+            </Text>
+          )}
+        </View>
+      </Pressable>
+    );
+  }
+
   return (
-      <Pressable onPress={onPress} style={({ pressed }) => [styles.island, pressed && styles.pressed]} accessibilityRole="button" accessibilityLabel="Active Island Card">
+    <Pressable
+      onPress={onDrop ?? onPress}
+      style={({ pressed }) => [
+        styles.island,
+        isDragging && styles.islandDropActive,
+        pressed && styles.pressed,
+      ]}
+      accessibilityRole="button"
+      accessibilityLabel="Active Island Card"
+    >
       <BlurView intensity={42} tint="dark" style={StyleSheet.absoluteFill} />
       <View style={styles.islandHeader}>
         <View style={styles.islandTitleRow}>
@@ -303,7 +702,7 @@ function ActiveIsland({ card, onPress }: { card: VaultCard | null; onPress: () =
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.islandCardName} numberOfLines={1}>{card.title}</Text>
-            <Text style={styles.islandCardStatus}>Ready to reveal</Text>
+            <Text style={styles.islandCardStatus}>{isDragging ? 'Release to activate' : 'Ready to reveal'}</Text>
           </View>
           <Ionicons name="checkmark-circle" size={18} color={colors.primary} />
         </View>
@@ -326,6 +725,9 @@ function AddCardSheet({ visible, onClose }: { visible: boolean; onClose: () => v
   const [number, setNumber] = useState('');
   const [barcode, setBarcode] = useState('');
   const [category, setCategory] = useState<CardCategory>('Membership');
+  const [cvv, setCvv] = useState('');
+  const [validThru, setValidThru] = useState('');
+  const [rollNo, setRollNo] = useState('');
 
   const canSave = title.trim().length > 1 && holder.trim().length > 1;
   const previewCard: VaultCard = {
@@ -337,6 +739,9 @@ function AddCardSheet({ visible, onClose }: { visible: boolean; onClose: () => v
     barcode: barcode || '102306233',
     category,
     color: 'green',
+    cvv: cvv || undefined,
+    validThru: validThru || undefined,
+    rollNo: rollNo || undefined,
   };
 
   const closeAndReset = () => {
@@ -346,6 +751,9 @@ function AddCardSheet({ visible, onClose }: { visible: boolean; onClose: () => v
     setNumber('');
     setBarcode('');
     setCategory('Membership');
+    setCvv('');
+    setValidThru('');
+    setRollNo('');
     onClose();
   };
 
@@ -359,6 +767,9 @@ function AddCardSheet({ visible, onClose }: { visible: boolean; onClose: () => v
       number: number.trim() || '—',
       barcode: barcode.trim() || number.trim() || '102306233',
       category,
+      cvv: cvv.trim() || undefined,
+      validThru: validThru.trim() || undefined,
+      rollNo: rollNo.trim() || undefined,
     });
     closeAndReset();
   };
@@ -386,10 +797,25 @@ function AddCardSheet({ visible, onClose }: { visible: boolean; onClose: () => v
             <Text style={styles.sectionLabel}>CARD DETAILS</Text>
             <Field label="CARD TITLE" value={title} onChangeText={setTitle} placeholder="e.g. THAPAR LIBRARY" />
             <Field label="CARDHOLDER" value={holder} onChangeText={setHolder} placeholder="Your name" />
-            <View style={styles.fieldRow}>
-              <View style={{ flex: 1 }}><Field label="CARD NUMBER" value={number} onChangeText={setNumber} placeholder="Optional" keyboardType="numbers-and-punctuation" /></View>
-              <View style={{ flex: 1 }}><Field label="BARCODE VALUE" value={barcode} onChangeText={setBarcode} placeholder="Optional" keyboardType="numbers-and-punctuation" /></View>
-            </View>
+            
+            {category === 'Credit Card' || category === 'Debit Card' ? (
+              <View style={styles.fieldRow}>
+                <View style={{ flex: 1.5 }}><Field label="CARD NUMBER" value={number} onChangeText={setNumber} placeholder="e.g. 4532 7189 0288 3314" keyboardType="numbers-and-punctuation" /></View>
+                <View style={{ flex: 1 }}><Field label="VALID THRU" value={validThru} onChangeText={setValidThru} placeholder="MM/YY" maxLength={5} /></View>
+                <View style={{ flex: 0.8 }}><Field label="CVV" value={cvv} onChangeText={setCvv} placeholder="e.g. 451" maxLength={4} keyboardType="numbers-and-punctuation" /></View>
+              </View>
+            ) : category === 'Library' || category === 'Student ID' ? (
+              <View style={styles.fieldRow}>
+                <View style={{ flex: 1.2 }}><Field label="CARD NUMBER" value={number} onChangeText={setNumber} placeholder="e.g. 102306233" keyboardType="numbers-and-punctuation" /></View>
+                <View style={{ flex: 1 }}><Field label="ROLL NO / STUDENT ID" value={rollNo} onChangeText={setRollNo} placeholder="e.g. 102306233" keyboardType="numbers-and-punctuation" /></View>
+              </View>
+            ) : (
+              <View style={styles.fieldRow}>
+                <View style={{ flex: 1 }}><Field label="CARD NUMBER" value={number} onChangeText={setNumber} placeholder="Optional" keyboardType="numbers-and-punctuation" /></View>
+                <View style={{ flex: 1 }}><Field label="BARCODE VALUE" value={barcode} onChangeText={setBarcode} placeholder="Optional" keyboardType="numbers-and-punctuation" /></View>
+              </View>
+            )}
+
             <Text style={styles.sectionLabel}>CARD TYPE</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
               {categoryOptions.map((option) => {
@@ -413,7 +839,294 @@ function AddCardSheet({ visible, onClose }: { visible: boolean; onClose: () => v
   );
 }
 
-function Field({ label, value, onChangeText, placeholder, keyboardType }: { label: string; value: string; onChangeText: (value: string) => void; placeholder: string; keyboardType?: 'default' | 'numbers-and-punctuation' }) {
+function SettingsSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  const colors = useColors();
+  const insets = useSafeAreaInsets();
+  const { cards, faceIdEnabled, setFaceIdEnabled } = useCardVault();
+  const [hapticsEnabled, setHapticsEnabled] = useState(true);
+
+  const closeAndReset = () => {
+    onClose();
+  };
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={closeAndReset}>
+      <View style={styles.modalRoot}>
+        <Pressable style={styles.modalScrim} onPress={closeAndReset} />
+        <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]}>
+          <View style={styles.sheetHandle} />
+          <View style={styles.sheetHeader}>
+            <View>
+              <Text style={styles.sheetEyebrow}>SYSTEM SETTINGS</Text>
+              <Text style={styles.sheetTitle}>Preferences & Info</Text>
+            </View>
+            <GlassButton icon="close" onPress={closeAndReset} label="Close settings" />
+          </View>
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.formContent}>
+            
+            <Text style={styles.sectionLabel}>APP PREFERENCES</Text>
+            
+            <Pressable 
+              onPress={() => {
+                void Haptics.selectionAsync();
+                setHapticsEnabled(!hapticsEnabled);
+              }}
+              style={({ pressed }) => [
+                styles.settingsRow,
+                pressed && styles.pressed
+              ]}
+            >
+              <View style={styles.settingsRowLeft}>
+                <Ionicons name="notifications-outline" size={20} color={colors.primary} />
+                <View style={{ marginLeft: 12 }}>
+                  <Text style={styles.settingsRowTitle}>Haptic Feedback</Text>
+                  <Text style={styles.settingsRowSub}>Tactile feedback on swipe & actions</Text>
+                </View>
+              </View>
+              <Ionicons 
+                name={hapticsEnabled ? "toggle" : "toggle-outline"} 
+                size={34} 
+                color={hapticsEnabled ? colors.primary : colors.mutedForeground} 
+              />
+            </Pressable>
+
+            <Pressable 
+              onPress={() => {
+                void Haptics.selectionAsync();
+                setFaceIdEnabled(!faceIdEnabled);
+              }}
+              style={({ pressed }) => [
+                styles.settingsRow,
+                { marginTop: 10 },
+                pressed && styles.pressed
+              ]}
+            >
+              <View style={styles.settingsRowLeft}>
+                <Ionicons name="finger-print-outline" size={20} color={colors.primary} />
+                <View style={{ marginLeft: 12 }}>
+                  <Text style={styles.settingsRowTitle}>Biometric Decryption</Text>
+                  <Text style={styles.settingsRowSub}>Require Face ID to decrypt card details</Text>
+                </View>
+              </View>
+              <Ionicons 
+                name={faceIdEnabled ? "toggle" : "toggle-outline"} 
+                size={34} 
+                color={faceIdEnabled ? colors.primary : colors.mutedForeground} 
+              />
+            </Pressable>
+
+            <Text style={[styles.sectionLabel, { marginTop: 18 }]}>VAULT STATISTICS</Text>
+            <View style={styles.statsCard}>
+              <View style={styles.statsItem}>
+                <Text style={styles.statsValue}>{cards.length}</Text>
+                <Text style={styles.statsLabel}>Total cards secured</Text>
+              </View>
+              <View style={styles.statsDivider} />
+              <View style={styles.statsItem}>
+                <Text style={styles.statsValue}>
+                  {new Set(cards.map(c => c.category)).size}
+                </Text>
+                <Text style={styles.statsLabel}>Unique categories</Text>
+              </View>
+            </View>
+
+            <Text style={[styles.sectionLabel, { marginTop: 18 }]}>SECURITY INFO</Text>
+            <View style={styles.securityBanner}>
+              <Ionicons name="shield-checkmark-outline" size={24} color="#70CB8B" />
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text style={styles.securityTitle}>On-Device Encryption</Text>
+                <Text style={styles.securityText}>
+                  Your credit/debit, student, library, and membership cards are encrypted and saved strictly in your device's local memory. No data is ever uploaded online.
+                </Text>
+              </View>
+            </View>
+
+            <Text style={[styles.sectionLabel, { marginTop: 18 }]}>ABOUT APPLICATION</Text>
+            <View style={styles.aboutBox}>
+              <View style={styles.aboutRow}>
+                <Text style={styles.aboutLabel}>App Version</Text>
+                <Text style={styles.aboutVal}>v1.0.0 (Expo SDK 51)</Text>
+              </View>
+              <View style={styles.aboutDivider} />
+              <View style={styles.aboutRow}>
+                <Text style={styles.aboutLabel}>Developer</Text>
+                <Text style={styles.aboutVal}>Aditya Tayal</Text>
+              </View>
+              <View style={styles.aboutDivider} />
+              <View style={styles.aboutRow}>
+                <Text style={styles.aboutLabel}>License</Text>
+                <Text style={styles.aboutVal}>Proprietary & Secure</Text>
+              </View>
+            </View>
+
+            <View style={{ height: 20 }} />
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function EditCardSheet({ card, onClose }: { card: VaultCard | null; onClose: () => void }) {
+  const colors = useColors();
+  const insets = useSafeAreaInsets();
+  const { updateCard, deleteCard } = useCardVault();
+  
+  const [title, setTitle] = useState('');
+  const [holder, setHolder] = useState('');
+  const [number, setNumber] = useState('');
+  const [barcode, setBarcode] = useState('');
+  const [category, setCategory] = useState<CardCategory>('Membership');
+  const [cvv, setCvv] = useState('');
+  const [validThru, setValidThru] = useState('');
+  const [rollNo, setRollNo] = useState('');
+
+  // Load card details when card changes
+  useEffect(() => {
+    if (card) {
+      setTitle(card.title);
+      setHolder(card.holder);
+      setNumber(card.number === '—' ? '' : card.number);
+      setBarcode(card.barcode === '102306233' ? '' : card.barcode);
+      setCategory(card.category);
+      setCvv(card.cvv || '');
+      setValidThru(card.validThru || '');
+      setRollNo(card.rollNo || '');
+    }
+  }, [card]);
+
+  if (!card) return null;
+
+  const canSave = title.trim().length > 1 && holder.trim().length > 1;
+  const previewCard: VaultCard = {
+    id: card.id,
+    title: title.toUpperCase() || 'YOUR CARD',
+    holder: holder || 'Your name',
+    institution: card.institution,
+    number: number || '0000 0000',
+    barcode: barcode || '102306233',
+    category,
+    color: card.color,
+    cvv: cvv || undefined,
+    validThru: validThru || undefined,
+    rollNo: rollNo || undefined,
+  };
+
+  const closeAndReset = () => {
+    Keyboard.dismiss();
+    onClose();
+  };
+
+  const save = () => {
+    if (!canSave) return;
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    updateCard(card.id, {
+      title: title.trim().toUpperCase(),
+      holder: holder.trim(),
+      number: number.trim() || '—',
+      barcode: barcode.trim() || number.trim() || '102306233',
+      category,
+      cvv: cvv.trim() || undefined,
+      validThru: validThru.trim() || undefined,
+      rollNo: rollNo.trim() || undefined,
+    });
+    closeAndReset();
+  };
+
+  const remove = () => {
+    Alert.alert(
+      "Delete Card",
+      `Are you sure you want to permanently delete "${card.title}" from your secure vault?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Delete", 
+          style: "destructive",
+          onPress: () => {
+            void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+            deleteCard(card.id);
+            closeAndReset();
+          }
+        }
+      ]
+    );
+  };
+
+  return (
+    <Modal visible={card !== null} animationType="slide" transparent onRequestClose={closeAndReset}>
+      <View style={styles.modalRoot}>
+        <Pressable style={styles.modalScrim} onPress={closeAndReset} />
+        <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]}>
+          <View style={styles.sheetHandle} />
+          <View style={styles.sheetHeader}>
+            <View>
+              <Text style={styles.sheetEyebrow}>EDIT ENTRY</Text>
+              <Text style={styles.sheetTitle}>Update card details</Text>
+            </View>
+            <GlassButton icon="close" onPress={closeAndReset} label="Close edit card" />
+          </View>
+          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.formContent}>
+            <View style={styles.previewWrap}>
+              <Text style={styles.sectionLabel}>LIVE PREVIEW</Text>
+              <View pointerEvents="none" style={styles.previewCard}>
+                <CardFace card={previewCard} back={false} />
+              </View>
+            </View>
+            
+            <Text style={styles.sectionLabel}>CARD DETAILS</Text>
+            <Field label="CARD TITLE" value={title} onChangeText={setTitle} placeholder="e.g. THAPAR LIBRARY" />
+            <Field label="CARDHOLDER" value={holder} onChangeText={setHolder} placeholder="Your name" />
+            
+            {category === 'Credit Card' || category === 'Debit Card' ? (
+              <View style={styles.fieldRow}>
+                <View style={{ flex: 1.5 }}><Field label="CARD NUMBER" value={number} onChangeText={setNumber} placeholder="e.g. 4532 7189 0288 3314" keyboardType="numbers-and-punctuation" /></View>
+                <View style={{ flex: 1 }}><Field label="VALID THRU" value={validThru} onChangeText={setValidThru} placeholder="MM/YY" maxLength={5} /></View>
+                <View style={{ flex: 0.8 }}><Field label="CVV" value={cvv} onChangeText={setCvv} placeholder="e.g. 451" maxLength={4} keyboardType="numbers-and-punctuation" /></View>
+              </View>
+            ) : category === 'Library' || category === 'Student ID' ? (
+              <View style={styles.fieldRow}>
+                <View style={{ flex: 1.2 }}><Field label="CARD NUMBER" value={number} onChangeText={setNumber} placeholder="e.g. 102306233" keyboardType="numbers-and-punctuation" /></View>
+                <View style={{ flex: 1 }}><Field label="ROLL NO / STUDENT ID" value={rollNo} onChangeText={setRollNo} placeholder="e.g. 102306233" keyboardType="numbers-and-punctuation" /></View>
+              </View>
+            ) : (
+              <View style={styles.fieldRow}>
+                <View style={{ flex: 1 }}><Field label="CARD NUMBER" value={number} onChangeText={setNumber} placeholder="Optional" keyboardType="numbers-and-punctuation" /></View>
+                <View style={{ flex: 1 }}><Field label="BARCODE VALUE" value={barcode} onChangeText={setBarcode} placeholder="Optional" keyboardType="numbers-and-punctuation" /></View>
+              </View>
+            )}
+
+            <Text style={styles.sectionLabel}>CARD TYPE</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+              {categoryOptions.map((option) => {
+                const active = option === category;
+                return (
+                  <Pressable key={option} onPress={() => { void Haptics.selectionAsync(); setCategory(option); }} style={[styles.categoryChip, active && { backgroundColor: colors.primary, borderColor: colors.primary }]}>
+                    <MaterialCommunityIcons name={categoryIcons[option]} size={15} color={active ? colors.ink : colors.mutedForeground} />
+                    <Text style={[styles.categoryChipText, active && { color: colors.ink }]}>{option}</Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+
+            <View style={styles.editActionRow}>
+              <Pressable onPress={remove} style={({ pressed }) => [styles.deleteButton, pressed && styles.pressed]} accessibilityRole="button">
+                <Ionicons name="trash-outline" size={18} color="#FF5A5A" />
+                <Text style={styles.deleteButtonText}>Delete card</Text>
+              </Pressable>
+              
+              <Pressable onPress={save} disabled={!canSave} style={({ pressed }) => [styles.saveChangesButton, { backgroundColor: canSave ? colors.primary : colors.muted }, pressed && canSave && styles.pressed]} accessibilityRole="button">
+                <Text style={[styles.saveChangesButtonText, { color: canSave ? colors.ink : colors.mutedForeground }]}>Save Changes</Text>
+                <Ionicons name="checkmark" size={18} color={canSave ? colors.ink : colors.mutedForeground} />
+              </Pressable>
+            </View>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function Field({ label, value, onChangeText, placeholder, keyboardType, maxLength }: { label: string; value: string; onChangeText: (value: string) => void; placeholder: string; keyboardType?: 'default' | 'numbers-and-punctuation'; maxLength?: number }) {
   const colors = useColors();
   return (
     <View style={styles.field}>
@@ -424,6 +1137,7 @@ function Field({ label, value, onChangeText, placeholder, keyboardType }: { labe
         placeholder={placeholder}
         placeholderTextColor={colors.mutedForeground}
         keyboardType={keyboardType}
+        maxLength={maxLength}
         style={[styles.input, { color: colors.foreground, borderColor: colors.border, backgroundColor: colors.input }]}
         autoCapitalize={label === 'CARD TITLE' ? 'characters' : 'words'}
       />
@@ -437,14 +1151,27 @@ function HomeScreen() {
   const { cards, activeId, setActiveId } = useCardVault();
   const [activeIndex, setActiveIndex] = useState(0);
   const [addVisible, setAddVisible] = useState(false);
-  const [islandExpanded, setIslandExpanded] = useState(false);
+  const [settingsVisible, setSettingsVisible] = useState(false);
+  const [editingCard, setEditingCard] = useState<VaultCard | null>(null);
+  const [islandExpanded, setIslandExpanded] = useState(true);
+  const [isDragging, setIsDragging] = useState(false);
+  const [swipeDirection, setSwipeDirection] = useState<'left' | 'right' | null>(null);
 
   const activeCard = cards.find((card) => card.id === activeId) ?? null;
-  const visibleCards = cards.slice(activeIndex, activeIndex + 3);
+  const visibleCards = useMemo(() => {
+    if (cards.length === 0) return [];
+    const list: VaultCard[] = [];
+    for (let i = 0; i < cards.length; i++) {
+      const idx = (activeIndex + i) % cards.length;
+      list.push(cards[idx]);
+    }
+    return list;
+  }, [cards, activeIndex]);
 
   const shiftCard = (direction: number) => {
     if (cards.length < 2) return;
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setSwipeDirection(direction > 0 ? 'left' : 'right');
     setActiveIndex((current) => (current + direction + cards.length) % cards.length);
   };
 
@@ -456,87 +1183,111 @@ function HomeScreen() {
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
-  const handleVerticalSwipe = (direction: 1 | -1) => {
+  const handleHorizontalSwipe = (direction: 1 | -1) => {
     shiftCard(direction);
+  };
+
+  const handleDropTarget = () => {
+    const card = visibleCards[0];
+    if (!card) return;
+    setActiveId(card.id);
+    setIslandExpanded(true);
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
   return (
     <View style={[styles.screen, { paddingTop: Math.max(insets.top, Platform.OS === 'web' ? 67 : 12) }]}>
       <LinearGradient colors={['#1B1B1A', colors.background, colors.background]} locations={[0, 0.48, 1]} style={StyleSheet.absoluteFill} />
       <View style={styles.ambientOrb} />
-      <ScrollView
-        contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, Platform.OS === 'web' ? 34 : 18) + 118 }}
-        showsVerticalScrollIndicator={false}
-        bounces={false}
-      >
-        <View style={styles.header}>
-          <View>
-            <View style={styles.wordmarkRow}><View style={[styles.wordmarkDot, { backgroundColor: colors.primary }]} /><Text style={styles.wordmark}>CARDVAULT</Text></View>
-            <Text style={styles.subtitle}>Your cards, one tap away</Text>
+      
+      {/* Fixed Header */}
+      <View style={styles.header}>
+        <View>
+          <View style={styles.wordmarkRow}>
+            <View style={[styles.wordmarkDot, { backgroundColor: colors.primary }]} />
+            <Text style={styles.wordmark}>CARDVAULT</Text>
           </View>
-          <GlassButton icon="settings-outline" onPress={() => setIslandExpanded((value) => !value)} label="Toggle active island detail" />
+          <Text style={styles.subtitle}>Your cards, one tap away</Text>
         </View>
-        <ActiveIsland card={activeCard} onPress={() => setIslandExpanded((value) => !value)} />
-        {islandExpanded && activeCard && (
-          <View style={styles.islandExpanded}>
-            <View style={styles.expandedTop}>
-              <View><Text style={styles.expandedEyebrow}>DYNAMIC ISLAND PREVIEW</Text><Text style={styles.expandedTitle}>Ready when you are.</Text></View>
-              <View style={styles.expandedSignal}><View style={[styles.liveDot, { backgroundColor: colors.primary }]} /><Text style={styles.expandedSignalText}>LIVE</Text></View>
-            </View>
-            <View style={styles.expandedIslandPill}>
-              <MaterialCommunityIcons name={categoryIcons[activeCard.category]} size={15} color={colors.ink} />
-              <Text style={styles.expandedIslandText}>{activeCard.title}</Text>
-              <Ionicons name="chevron-down" size={14} color={colors.ink} />
-            </View>
-            <Barcode value={activeCard.barcode} compact />
-          </View>
+        <View style={styles.headerActions}>
+          <GlassButton icon={islandExpanded ? "eye-outline" : "eye-off-outline"} onPress={() => setIslandExpanded((value) => !value)} label="Toggle active card visibility" />
+          <GlassButton icon="settings-outline" onPress={() => setSettingsVisible(true)} label="Open settings" />
+        </View>
+      </View>
+
+      {/* Fixed Dynamic Island Expanded Preview (Drop Target) */}
+      {islandExpanded && (
+        <View style={{ marginBottom: 12 }}>
+          <ActiveIsland
+            card={activeCard}
+            isDragging={isDragging}
+            onDrop={handleDropTarget}
+            onPress={() => { if (activeCard) setEditingCard(activeCard); }}
+          />
+        </View>
+      )}
+
+      {/* Fixed Collection Hero Heading */}
+      <View style={styles.heroHeading}>
+        <View><Text style={styles.heroKicker}>YOUR COLLECTION</Text><Text style={styles.heroTitle}>The vault</Text></View>
+        <View style={styles.countPill}><Text style={styles.countText}>{String(cards.length).padStart(2, '0')}</Text><Text style={styles.countLabel}>CARDS</Text></View>
+      </View>
+
+      {/* Fixed Stack Area */}
+      <View style={styles.stackArea}>
+        <Animated.View style={styles.stackGroup}>
+        {visibleCards.length > 0 ? (
+          visibleCards.slice().reverse().map((card, reverseIndex) => {
+            const index = visibleCards.length - 1 - reverseIndex;
+            return (
+              <VaultCardView
+                key={card.id}
+                card={card}
+                index={index}
+                selected={activeId === card.id}
+                swipeDirection={index === 0 ? swipeDirection : null}
+                onPress={() => setActiveId(card.id)}
+                onDrop={index === 0 ? handleDrop : () => undefined}
+                onHorizontalSwipe={index === 0 ? handleHorizontalSwipe : () => undefined}
+                onDropTarget={index === 0 ? handleDropTarget : () => undefined}
+                onDragState={index === 0 ? setIsDragging : () => undefined}
+              />
+            );
+          })
+        ) : (
+          <View style={styles.emptyStack}><MaterialCommunityIcons name="cards-outline" size={34} color={colors.mutedForeground} /><Text style={styles.emptyTitle}>Your vault is waiting</Text><Text style={styles.emptyBody}>Add your first card below.</Text></View>
         )}
-        <View style={styles.heroHeading}>
-          <View><Text style={styles.heroKicker}>YOUR COLLECTION</Text><Text style={styles.heroTitle}>The vault</Text></View>
-          <View style={styles.countPill}><Text style={styles.countText}>{String(cards.length).padStart(2, '0')}</Text><Text style={styles.countLabel}>CARDS</Text></View>
-        </View>
-        <View style={styles.stackArea}>
-          {visibleCards.length > 0 ? (
-            visibleCards.slice().reverse().map((card, reverseIndex) => {
-              const index = visibleCards.length - 1 - reverseIndex;
-              return (
-                <VaultCardView
-                  key={card.id}
-                  card={card}
-                  index={index}
-                  selected={activeId === card.id}
-                  onPress={() => setActiveId(card.id)}
-                  onDrop={index === 0 ? handleDrop : () => undefined}
-                  onVerticalSwipe={index === 0 ? handleVerticalSwipe : () => undefined}
-                />
-              );
-            })
-          ) : (
-            <View style={styles.emptyStack}><MaterialCommunityIcons name="cards-outline" size={34} color={colors.mutedForeground} /><Text style={styles.emptyTitle}>Your vault is waiting</Text><Text style={styles.emptyBody}>Add your first card below.</Text></View>
-          )}
-        </View>
-        <View style={styles.stackHint}><Ionicons name="swap-vertical" size={16} color={colors.mutedForeground} /><Text style={styles.hintText}>Swipe up or down  ·  Tap to flip</Text></View>
+        </Animated.View>
+      </View>
+
+      {/* Fixed Stack Hint */}
+      <View style={styles.stackHint}><Ionicons name="swap-horizontal" size={16} color={colors.mutedForeground} /><Text style={styles.hintText}>Swipe left or right  ·  Tap to flip</Text></View>
+
+      {/* Scrollable Bottom Section */}
+      <View style={{ flex: 1 }}>
         <View style={styles.collectionRow}>
           <Text style={styles.collectionLabel}>ALL CARDS</Text>
           <Pressable onPress={() => setAddVisible(true)} style={({ pressed }) => [styles.addSmall, pressed && styles.pressed]}><Ionicons name="add" size={16} color={colors.primary} /><Text style={styles.addSmallText}>New card</Text></Pressable>
         </View>
-        <View style={styles.miniList}>
-          {cards.map((card, index) => (
-            <Pressable key={card.id} onPress={() => { setActiveIndex(index); setActiveId(card.id); }} style={({ pressed }) => [styles.miniCard, activeId === card.id && { borderColor: colors.primary }, pressed && styles.pressed]}>
-              <View style={[styles.miniIcon, { backgroundColor: card.color === 'green' ? colors.primary : colors.secondary }]}><MaterialCommunityIcons name={categoryIcons[card.category]} size={17} color={card.color === 'green' ? colors.ink : colors.foreground} /></View>
-              <View style={{ flex: 1 }}><Text style={styles.miniTitle}>{card.title}</Text><Text style={styles.miniSubtitle}>{card.category} · {card.holder}</Text></View>
-              {activeId === card.id ? <Ionicons name="checkmark-circle" size={19} color={colors.primary} /> : <Feather name="chevron-right" size={17} color={colors.mutedForeground} />}
-            </Pressable>
-          ))}
-        </View>
-      </ScrollView>
-      <View style={[styles.fabDock, { bottom: Math.max(insets.bottom, Platform.OS === 'web' ? 34 : 14) + 18 }]}>
-        <BlurView intensity={36} tint="dark" style={StyleSheet.absoluteFill} />
-        <Pressable onPress={() => setAddVisible(true)} style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]} accessibilityRole="button" accessibilityLabel="Add card">
-          <Ionicons name="add" size={28} color={colors.ink} />
-        </Pressable>
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, Platform.OS === 'web' ? 34 : 14) + 20 }}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.miniList}>
+            {cards.map((card, index) => (
+              <Pressable key={card.id} onPress={() => { setActiveIndex(index); setActiveId(card.id); setEditingCard(card); }} style={({ pressed }) => [styles.miniCard, activeId === card.id && { borderColor: colors.primary }, pressed && styles.pressed]}>
+                <View style={[styles.miniIcon, { backgroundColor: card.color === 'green' ? colors.primary : colors.secondary }]}><MaterialCommunityIcons name={categoryIcons[card.category]} size={17} color={card.color === 'green' ? colors.ink : colors.foreground} /></View>
+                <View style={{ flex: 1 }}><Text style={styles.miniTitle}>{card.title}</Text><Text style={styles.miniSubtitle}>{card.category} · {card.holder}</Text></View>
+                {activeId === card.id ? <Ionicons name="checkmark-circle" size={19} color={colors.primary} /> : <Feather name="chevron-right" size={17} color={colors.mutedForeground} />}
+              </Pressable>
+            ))}
+          </View>
+        </ScrollView>
       </View>
       <AddCardSheet visible={addVisible} onClose={() => setAddVisible(false)} />
+      <SettingsSheet visible={settingsVisible} onClose={() => setSettingsVisible(false)} />
+      <EditCardSheet card={editingCard} onClose={() => setEditingCard(null)} />
     </View>
   );
 }
@@ -553,6 +1304,7 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#090B0A' },
   ambientOrb: { position: 'absolute', top: 130, right: -90, width: 210, height: 210, borderRadius: 105, backgroundColor: 'rgba(112, 203, 139, 0.07)' },
   header: { paddingHorizontal: 20, paddingBottom: 22, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   wordmarkRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   wordmarkDot: { width: 8, height: 8, borderRadius: 4 },
   wordmark: { color: '#F5F7F6', fontSize: 13, letterSpacing: 2.6, fontWeight: '700' },
@@ -560,6 +1312,12 @@ const styles = StyleSheet.create({
   iconButton: { width: 42, height: 42, borderRadius: 21, backgroundColor: 'rgba(28, 38, 33, 0.76)', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#27332D' },
   pressed: { opacity: 0.68 },
   island: { marginHorizontal: 20, minHeight: 76, overflow: 'hidden', borderRadius: 23, borderWidth: 1, borderColor: '#343434', backgroundColor: 'rgba(29, 29, 29, 0.78)', padding: 14 },
+  islandCompact: { height: 36, borderRadius: 18, borderWidth: 1, borderColor: '#222222', backgroundColor: '#000000', paddingHorizontal: 12, justifyContent: 'center', alignItems: 'center', maxWidth: 160 },
+  islandCompactContent: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  islandCompactRow: { flexDirection: 'row', alignItems: 'center', maxWidth: 110 },
+  islandCompactTitle: { color: '#FFFFFF', fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
+  liveDotCompact: { width: 6, height: 6, borderRadius: 3 },
+  islandDropActive: { borderColor: '#70CB8B', backgroundColor: 'rgba(112, 203, 139, 0.15)' },
   islandHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   islandTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   islandEyebrow: { fontSize: 10, letterSpacing: 1.7, color: '#88958D', fontWeight: '700' },
@@ -578,6 +1336,7 @@ const styles = StyleSheet.create({
   countText: { color: '#F1F0EC', fontSize: 18, fontWeight: '700', letterSpacing: 1 },
   countLabel: { color: '#858581', fontSize: 9, letterSpacing: 1.7, marginTop: 1 },
   stackArea: { height: CARD_HEIGHT + 34, marginTop: 22, alignItems: 'center', justifyContent: 'flex-start' },
+  stackGroup: { width: CARD_WIDTH, height: CARD_HEIGHT, alignItems: 'center', justifyContent: 'center' },
   stackCard: { position: 'absolute', width: CARD_WIDTH, height: CARD_HEIGHT, borderRadius: 25, shadowColor: '#000', shadowOffset: { width: 0, height: 18 }, shadowOpacity: 0.42, shadowRadius: 24, elevation: 10 },
   peekingCard: { shadowOpacity: 0.2, shadowRadius: 15 },
   cardPressable: { width: '100%', height: '100%' },
@@ -624,17 +1383,16 @@ const styles = StyleSheet.create({
   miniIcon: { width: 36, height: 36, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
   miniTitle: { color: '#E9F1EC', fontSize: 12, fontWeight: '700', letterSpacing: 0.4 },
   miniSubtitle: { color: '#78857D', fontSize: 11, marginTop: 3 },
-  fabDock: { position: 'absolute', alignSelf: 'center', width: 74, height: 74, borderRadius: 25, padding: 7, overflow: 'hidden', borderWidth: 1, borderColor: '#484844', backgroundColor: 'rgba(29, 29, 29, 0.78)', shadowColor: '#000', shadowOpacity: 0.4, shadowRadius: 20, shadowOffset: { width: 0, height: 10 }, elevation: 12 },
-  fab: { flex: 1, borderRadius: 19, backgroundColor: '#F1F0EC', justifyContent: 'center', alignItems: 'center' },
-  fabPressed: { transform: [{ scale: 0.94 }], opacity: 0.9 },
-  islandExpanded: { marginHorizontal: 20, marginTop: 10, padding: 16, borderRadius: 20, backgroundColor: 'rgba(23, 23, 23, 0.92)', borderWidth: 1, borderColor: '#363636' },
-  expandedTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  expandedEyebrow: { color: '#858581', fontSize: 9, letterSpacing: 1.7, fontWeight: '700' },
-  expandedTitle: { color: '#E2E2DE', fontSize: 14, fontWeight: '600', marginTop: 4 },
-  expandedSignal: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
-  expandedSignalText: { color: '#F1F0EC', fontSize: 9, fontWeight: '700', letterSpacing: 1.2 },
-  expandedIslandPill: { alignSelf: 'center', marginTop: 15, minWidth: 150, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 20, backgroundColor: '#F1F0EC', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 },
-  expandedIslandText: { color: '#0B0B0B', fontSize: 11, fontWeight: '700', letterSpacing: 0.7 },
+  dragIndicatorOverlay: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center', zIndex: 100, backgroundColor: 'rgba(0, 0, 0, 0.25)', borderRadius: 25, overflow: 'hidden' },
+  dragIndicatorBlur: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 18, flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.38)', shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } },
+  dragIndicatorText: { color: '#000000', fontSize: 10, fontWeight: '800', letterSpacing: 0.8 },
+  islandExpandedCompact: { marginHorizontal: 20, marginTop: 10, padding: 12, borderRadius: 16, backgroundColor: 'rgba(23, 23, 23, 0.92)', borderWidth: 1, borderColor: '#363636', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  islandExpandedLeft: { flex: 1, justifyContent: 'center' },
+  islandExpandedRight: { width: 130, justifyContent: 'center' },
+  liveIndicator: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 4 },
+  liveText: { color: '#88958D', fontSize: 9, fontWeight: '700', letterSpacing: 1 },
+  islandExpandedTitle: { color: '#F5F7F6', fontSize: 13, fontWeight: '700', letterSpacing: 0.3 },
+  islandExpandedCategory: { color: '#88958D', fontSize: 10, marginTop: 2 },
   modalRoot: { flex: 1, justifyContent: 'flex-end' },
   modalScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.68)' },
   sheet: { maxHeight: '92%', backgroundColor: '#101613', borderTopLeftRadius: 30, borderTopRightRadius: 30, borderWidth: 1, borderBottomWidth: 0, borderColor: '#293A2F', paddingTop: 11 },
@@ -658,4 +1416,52 @@ const styles = StyleSheet.create({
   emptyStack: { height: CARD_HEIGHT, width: CARD_WIDTH, borderRadius: 25, borderWidth: 1, borderColor: '#29352E', borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(18,23,21,0.55)' },
   emptyTitle: { color: '#D6E3DB', marginTop: 12, fontWeight: '700', fontSize: 15 },
   emptyBody: { color: '#78857D', marginTop: 4, fontSize: 12 },
+  settingsRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'rgba(21, 21, 21, 0.4)', borderRadius: 16, padding: 14, borderWidth: 1, borderColor: '#2B2B2B', marginHorizontal: 20, marginBottom: 12 },
+  settingsRowLeft: { flexDirection: 'row', alignItems: 'center' },
+  settingsRowTitle: { color: '#E9F1EC', fontSize: 13, fontWeight: '700' },
+  settingsRowSub: { color: '#78857D', fontSize: 11, marginTop: 3 },
+  statsCard: { flexDirection: 'row', backgroundColor: 'rgba(21, 21, 21, 0.4)', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#2B2B2B', marginHorizontal: 20, marginBottom: 12 },
+  statsItem: { flex: 1, alignItems: 'center' },
+  statsValue: { color: '#70CB8B', fontSize: 24, fontWeight: '700' },
+  statsLabel: { color: '#88958D', fontSize: 11, marginTop: 4 },
+  statsDivider: { width: 1, backgroundColor: '#2B2B2B', marginVertical: 4 },
+  securityBanner: { flexDirection: 'row', backgroundColor: 'rgba(112, 203, 139, 0.08)', borderRadius: 16, padding: 14, borderWidth: 1, borderColor: 'rgba(112, 203, 139, 0.2)', marginHorizontal: 20, marginBottom: 12 },
+  securityTitle: { color: '#70CB8B', fontSize: 13, fontWeight: '700' },
+  securityText: { color: '#88958D', fontSize: 11, marginTop: 4, lineHeight: 16 },
+  aboutBox: { backgroundColor: 'rgba(21, 21, 21, 0.4)', borderRadius: 16, borderWidth: 1, borderColor: '#2B2B2B', marginHorizontal: 20, marginBottom: 12 },
+  aboutRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14 },
+  aboutLabel: { color: '#78857D', fontSize: 12 },
+  aboutVal: { color: '#E9F1EC', fontSize: 12, fontWeight: '600' },
+  aboutDivider: { height: 1, backgroundColor: '#2B2B2B' },
+  editActionRow: { flexDirection: 'row', gap: 10, marginTop: 17, marginBottom: 10 },
+  deleteButton: { flex: 1, height: 53, borderRadius: 17, borderWidth: 1, borderColor: '#FF5A5A', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  deleteButtonText: { color: '#FF5A5A', fontSize: 14, fontWeight: '700' },
+  saveChangesButton: { flex: 1.5, height: 53, borderRadius: 17, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  saveChangesButtonText: { fontSize: 14, fontWeight: '700', letterSpacing: 0.2 },
+  bankBackContent: { flex: 1, paddingVertical: 14 },
+  signatureRow: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 20, marginTop: 14, gap: 10 },
+  signatureStrip: { flex: 1, height: 32, justifyContent: 'center', paddingHorizontal: 10, borderRadius: 4 },
+  signatureStripText: { fontStyle: 'italic', fontSize: 9, color: '#88958D', fontWeight: '600' },
+  cvvBox: { width: 50, height: 32, justifyContent: 'center', alignItems: 'center', borderRadius: 4 },
+  cvvLabel: { fontSize: 7, color: '#88958D', fontWeight: '700', position: 'absolute', top: 2 },
+  cvvText: { fontSize: 11, fontWeight: '700', color: '#F5F7F6', letterSpacing: 0.5, marginTop: 7 },
+  bankInfoBlock: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', paddingHorizontal: 20, marginTop: 'auto', marginBottom: 10 },
+  bankInfoLeft: { flex: 1 },
+  bankNumberLabel: { fontSize: 8, color: '#88958D', fontWeight: '700', letterSpacing: 1 },
+  bankNumberText: { fontSize: 13, fontWeight: '700', letterSpacing: 1.5, marginVertical: 4, fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace' },
+  bankRow: { flexDirection: 'row', marginTop: 4 },
+  bankDetailLabel: { fontSize: 7, color: '#88958D', fontWeight: '700', letterSpacing: 0.5 },
+  bankDetailText: { fontSize: 10, fontWeight: '700', marginTop: 2 },
+  revealEyeBtn: { width: 34, height: 34, borderRadius: 17, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#343E38' },
+  idBackContent: { flex: 1, padding: 20, justifyContent: 'space-between' },
+  idBackHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  idBackDetails: { marginVertical: 14 },
+  idDetailRow: { borderBottomWidth: 1, borderBottomColor: '#2B2B2B', paddingBottom: 6 },
+  idDetailLabel: { fontSize: 8, color: '#88958D', fontWeight: '700', letterSpacing: 1 },
+  idDetailValue: { fontSize: 12, fontWeight: '700', marginTop: 4, letterSpacing: 0.3 },
+  idLargeBarcodeWrap: { alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF', padding: 8, borderRadius: 10, marginTop: 'auto' },
+  largeBarcodeBackContent: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 10 },
+  largeBarcodeHeader: { fontSize: 8, letterSpacing: 2, fontWeight: '700', color: '#6C7A72', marginBottom: 6 },
+  largeBarcodeWrapper: { padding: 10, backgroundColor: '#FFFFFF', borderRadius: 12, width: '100%', alignItems: 'center', justifyContent: 'center' },
+  largeBarcodeFooter: { fontSize: 12, letterSpacing: 1.5, fontWeight: '700', color: '#171F1B', marginTop: 6 },
 });

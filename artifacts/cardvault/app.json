@@ -14,7 +14,10 @@
       "backgroundColor": "#090B0A"
     },
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "Allow CardVault to use Face ID to securely reveal your credit and debit card information."
+      }
     },
     "android": {},
     "web": {
@@ -28,7 +31,13 @@
         }
       ],
       "expo-font",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow CardVault to use Face ID to securely reveal your credit and debit card information."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

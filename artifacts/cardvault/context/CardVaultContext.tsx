@@ -20,6 +20,9 @@ export type VaultCard = {
   barcode: string;
   category: CardCategory;
   color: 'green' | 'lavender' | 'blue' | 'orange' | 'graphite';
+  cvv?: string;
+  validThru?: string;
+  rollNo?: string;
 };
 
 const STORAGE_KEY = '@cardvault/cards';
@@ -35,6 +38,7 @@ const seedCards: VaultCard[] = [
     barcode: '102306233',
     category: 'Library',
     color: 'green',
+    rollNo: '102306233',
   },
   {
     id: 'cult-fit',
@@ -56,14 +60,32 @@ const seedCards: VaultCard[] = [
     category: 'Membership',
     color: 'blue',
   },
+  {
+    id: 'hdfc-bank',
+    title: 'HDFC BANK VISA',
+    holder: 'Aditya Tayal',
+    institution: 'HDFC Credit Premium Card',
+    number: '4532 7189 0288 3314',
+    barcode: '',
+    category: 'Credit Card',
+    color: 'graphite',
+    cvv: '451',
+    validThru: '12/29',
+  },
 ];
+
+const FACEID_KEY = '@cardvault/faceid';
 
 type CardVaultContextValue = {
   cards: VaultCard[];
   activeId: string | null;
   hydrated: boolean;
+  faceIdEnabled: boolean;
   setActiveId: (id: string | null) => void;
   addCard: (card: Omit<VaultCard, 'id' | 'color'>) => void;
+  updateCard: (id: string, updatedFields: Partial<Omit<VaultCard, 'id' | 'color'>>) => void;
+  deleteCard: (id: string) => void;
+  setFaceIdEnabled: (val: boolean) => void;
 };
 
 const CardVaultContext = createContext<CardVaultContextValue | null>(null);
@@ -72,11 +94,16 @@ export function CardVaultProvider({ children }: { children: React.ReactNode }) {
   const [cards, setCards] = useState<VaultCard[]>(seedCards);
   const [activeId, setActiveIdState] = useState<string | null>(seedCards[0]?.id ?? null);
   const [hydrated, setHydrated] = useState(false);
+  const [faceIdEnabled, setFaceIdEnabledState] = useState(false);
 
   useEffect(() => {
     let mounted = true;
-    Promise.all([AsyncStorage.getItem(STORAGE_KEY), AsyncStorage.getItem(ACTIVE_KEY)])
-      .then(([storedCards, storedActive]) => {
+    Promise.all([
+      AsyncStorage.getItem(STORAGE_KEY),
+      AsyncStorage.getItem(ACTIVE_KEY),
+      AsyncStorage.getItem(FACEID_KEY)
+    ])
+      .then(([storedCards, storedActive, storedFaceId]) => {
         if (!mounted) return;
         if (storedCards) {
           try {
@@ -87,6 +114,7 @@ export function CardVaultProvider({ children }: { children: React.ReactNode }) {
           }
         }
         if (storedActive) setActiveIdState(storedActive);
+        if (storedFaceId) setFaceIdEnabledState(storedFaceId === 'true');
         setHydrated(true);
       })
       .catch(() => setHydrated(true));
@@ -114,9 +142,41 @@ export function CardVaultProvider({ children }: { children: React.ReactNode }) {
     setActiveId(newCard.id);
   };
 
+  const updateCard = (id: string, updatedFields: Partial<Omit<VaultCard, 'id' | 'color'>>) => {
+    setCards((current) =>
+      current.map((card) => (card.id === id ? { ...card, ...updatedFields } : card))
+    );
+  };
+
+  const deleteCard = (id: string) => {
+    setCards((current) => {
+      const remaining = current.filter((card) => card.id !== id);
+      if (activeId === id) {
+        setActiveIdState(remaining[0]?.id ?? null);
+        if (hydrated) void AsyncStorage.setItem(ACTIVE_KEY, remaining[0]?.id ?? '');
+      }
+      return remaining;
+    });
+  };
+
+  const setFaceIdEnabled = (val: boolean) => {
+    setFaceIdEnabledState(val);
+    if (hydrated) void AsyncStorage.setItem(FACEID_KEY, String(val));
+  };
+
   const value = useMemo(
-    () => ({ cards, activeId, hydrated, setActiveId, addCard }),
-    [cards, activeId, hydrated],
+    () => ({
+      cards,
+      activeId,
+      hydrated,
+      faceIdEnabled,
+      setActiveId,
+      addCard,
+      updateCard,
+      deleteCard,
+      setFaceIdEnabled,
+    }),
+    [cards, activeId, hydrated, faceIdEnabled],
   );
 
   return <CardVaultContext.Provider value={value}>{children}</CardVaultContext.Provider>;
