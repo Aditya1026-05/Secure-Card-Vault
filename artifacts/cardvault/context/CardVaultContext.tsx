@@ -19,7 +19,7 @@ export type VaultCard = {
   number: string;
   barcode: string;
   category: CardCategory;
-  color: 'green' | 'lavender' | 'blue' | 'orange' | 'graphite' | 'maroon' | 'brown';
+  color: 'green' | 'lavender' | 'blue' | 'orange' | 'graphite' | 'maroon' | 'brown' | 'black';
   cvv?: string;
   validThru?: string;
   rollNo?: string;
@@ -148,7 +148,7 @@ export function CardVaultProvider({ children }: { children: React.ReactNode }) {
     const newCard: VaultCard = {
       ...card,
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      color: ['green', 'lavender', 'blue', 'orange', 'graphite', 'maroon', 'brown'][cards.length % 7] as VaultCard['color'],
+      color: ['green', 'lavender', 'blue', 'orange', 'graphite', 'maroon', 'brown', 'black'][cards.length % 8] as VaultCard['color'],
     };
     setCards((current) => [newCard, ...current]);
     setActiveId(newCard.id);

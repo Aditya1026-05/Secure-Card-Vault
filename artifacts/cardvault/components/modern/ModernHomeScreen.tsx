@@ -203,6 +203,54 @@ function VaultCardView({
   const translateY = useRef(new Animated.Value(0)).current;
   const rotateY = useRef(new Animated.Value(0)).current;
 
+  const spacingStep = Math.max(10, Math.min(22, 44 / Math.max(2, totalCards)));
+  const fannedScale = useRef(new Animated.Value(1 - Math.min(index, 3) * 0.045)).current;
+  const fannedTranslateX = useRef(new Animated.Value(Math.min(index, 3) * spacingStep)).current;
+  const fannedTranslateY = useRef(new Animated.Value(Math.min(index, 3) * -spacingStep)).current;
+
+  useEffect(() => {
+    const targetScale = 1 - Math.min(index, 3) * 0.045;
+    const targetX = Math.min(index, 3) * spacingStep;
+    const targetY = Math.min(index, 3) * -spacingStep;
+
+    Animated.parallel([
+      Animated.spring(fannedScale, {
+        toValue: targetScale,
+        damping: 22,
+        stiffness: 160,
+        mass: 0.8,
+        useNativeDriver: true,
+      }),
+      Animated.spring(fannedTranslateX, {
+        toValue: targetX,
+        damping: 22,
+        stiffness: 160,
+        mass: 0.8,
+        useNativeDriver: true,
+      }),
+      Animated.spring(fannedTranslateY, {
+        toValue: targetY,
+        damping: 22,
+        stiffness: 160,
+        mass: 0.8,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [index, spacingStep]);
+
+  useEffect(() => {
+    if (index === 0 && swipeDirection === 'right') {
+      translateX.setValue(-SCREEN_WIDTH);
+      Animated.spring(translateX, {
+        toValue: 0,
+        damping: 16,
+        stiffness: 120,
+        mass: 0.8,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [index, swipeDirection]);
+
   // Float animation for front card
   const floatValue = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -227,18 +275,6 @@ function VaultCardView({
       floatValue.setValue(0);
     }
   }, [index]);
-  useEffect(() => {
-    if (index === 0 && swipeDirection === 'right') {
-      translateX.setValue(-SCREEN_WIDTH);
-      Animated.spring(translateX, {
-        toValue: 0,
-        damping: 16,
-        stiffness: 120,
-        mass: 0.8,
-        useNativeDriver: true,
-      }).start();
-    }
-  }, [index, swipeDirection]);
 
   const indexRef = useRef(index);
   indexRef.current = index;
@@ -321,23 +357,15 @@ function VaultCardView({
           setIsAnimatingToBack(true);
           callbacksRef.current.onDragState(true);
           Animated.parallel([
-            Animated.timing(translateX, { toValue: SCREEN_WIDTH, duration: 200, useNativeDriver: true }),
-            Animated.timing(scale, { toValue: 1.05, duration: 200, useNativeDriver: true }),
+            Animated.spring(translateX, { toValue: 0, damping: 16, stiffness: 120, useNativeDriver: true }),
+            Animated.spring(scale, { toValue: 1, damping: 16, stiffness: 120, useNativeDriver: true }),
+            Animated.spring(translateY, { toValue: 0, damping: 16, stiffness: 120, useNativeDriver: true }),
           ]).start(() => {
-            translateX.setValue(SCREEN_WIDTH);
-            scale.setValue(1.05);
-            callbacksRef.current.onHorizontalSwipe(-1); // Pull card back to front
-
-            // 1-frame delay (16ms) to let native animation drivers reset and prevent lockup
-            setTimeout(() => {
-              Animated.spring(translateX, { toValue: 0, damping: 16, stiffness: 120, useNativeDriver: true }).start();
-              Animated.spring(scale, { toValue: 1, damping: 16, stiffness: 120, useNativeDriver: true }).start();
-              Animated.spring(translateY, { toValue: 0, damping: 16, stiffness: 120, useNativeDriver: true }).start(() => {
-                setIsAnimatingToBack(false);
-                callbacksRef.current.onDragState(false);
-              });
-            }, 16);
+            setIsAnimatingToBack(false);
+            callbacksRef.current.onDragState(false);
           });
+          
+          callbacksRef.current.onHorizontalSwipe(-1); // Pull card back to front
         } else {
           Animated.parallel([
             Animated.spring(translateX, { toValue: 0, useNativeDriver: true, speed: 20, bounciness: 6 }),
@@ -363,7 +391,6 @@ function VaultCardView({
     const next = flipped ? 0 : 180;
     Animated.timing(rotateY, { toValue: next, duration: 520, useNativeDriver: true }).start();
     setFlipped((val) => !val);
-    onPress();
   };
 
   const frontOpacity = rotateY.interpolate({ inputRange: [0, 90, 180], outputRange: [1, 0, 0] });
@@ -377,29 +404,19 @@ function VaultCardView({
     outputRange: [-8, 8],
   });
 
-  // Calculate 3D receding depth metrics (spacing decreases as totalCards increases)
-  const spacingStep = Math.max(10, Math.min(22, 44 / Math.max(2, totalCards)));
-  const depthScale = 1 - Math.min(index, 3) * 0.045;
-  const depthTranslateY = Math.min(index, 3) * -spacingStep;
-  const depthTranslateX = Math.min(index, 3) * spacingStep;
-  const depthOpacity = 1;
-
   const isVisible = index <= 3 || isAnimatingToBack;
-  const opacity = isVisible ? depthOpacity : 0;
+  const opacity = isVisible ? 1 : 0;
 
   const dragRotateZ = translateX.interpolate({
     inputRange: [-SCREEN_WIDTH, 0, SCREEN_WIDTH],
     outputRange: ['-10deg', '-4deg', '8deg'],
   });
 
-  const animatedScale = scale.interpolate({
-    inputRange: [0.8, 1.1],
-    outputRange: [0.8 * depthScale, 1.1 * depthScale],
-  });
+  const animatedScale = Animated.multiply(fannedScale, scale);
 
   // Combine translations to prevent native driver transform dropouts on iOS
-  const animatedTranslateX = Animated.add(translateX, new Animated.Value(depthTranslateX));
-  const baseTranslateY = Animated.add(translateY, new Animated.Value(depthTranslateY));
+  const animatedTranslateX = Animated.add(translateX, fannedTranslateX);
+  const baseTranslateY = Animated.add(translateY, fannedTranslateY);
   const animatedTranslateY = index === 0 
     ? Animated.add(baseTranslateY, floatingOffsetY)
     : baseTranslateY;

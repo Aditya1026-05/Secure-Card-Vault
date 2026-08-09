@@ -180,6 +180,7 @@ function CardFace({ card, back, onBarcodePress }: { card: VaultCard; back: boole
     graphite: [colors.metalMid, colors.metalBottom] as const,
     maroon: ['#523B3E', '#161011'] as const,
     brown: ['#4E413B', '#14100E'] as const,
+    black: ['#2E2E32', '#0A0A0C'] as const,
   }[card.color] || [colors.metalMid, colors.metalBottom];
 
   const handleRevealToggle = async () => {
@@ -393,6 +394,45 @@ function VaultCardView({
   const translateY = useRef(new Animated.Value(0)).current;
   const rotateY = useRef(new Animated.Value(0)).current;
 
+  const spacingStep = Math.max(10, Math.min(22, 44 / Math.max(2, totalCards)));
+  const fannedTranslateY = useRef(new Animated.Value(Math.min(index, 2) * spacingStep)).current;
+  const fannedScale = useRef(new Animated.Value(1 - Math.min(index, 2) * 0.04)).current;
+
+  useEffect(() => {
+    const targetY = Math.min(index, 2) * spacingStep;
+    const targetScale = 1 - Math.min(index, 2) * 0.04;
+    
+    Animated.parallel([
+      Animated.spring(fannedTranslateY, {
+        toValue: targetY,
+        damping: 22,
+        stiffness: 160,
+        mass: 0.8,
+        useNativeDriver: true,
+      }),
+      Animated.spring(fannedScale, {
+        toValue: targetScale,
+        damping: 22,
+        stiffness: 160,
+        mass: 0.8,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [index, spacingStep]);
+
+  useEffect(() => {
+    if (index === 0 && swipeDirection === 'right') {
+      translateX.setValue(-SCREEN_WIDTH);
+      Animated.spring(translateX, {
+        toValue: 0,
+        damping: 16,
+        stiffness: 120,
+        mass: 0.8,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [index, swipeDirection]);
+
   const indexRef = useRef(index);
   indexRef.current = index;
 
@@ -495,50 +535,33 @@ function VaultCardView({
           setIsAnimatingToBack(true);
           callbacksRef.current.onDragState(true);
           Animated.parallel([
-            Animated.timing(translateX, {
-              toValue: SCREEN_WIDTH,
-              duration: 200,
-              easing: Easing.out(Easing.quad),
+            Animated.spring(translateX, {
+              toValue: 0,
+              damping: 15,
+              stiffness: 120,
+              mass: 0.8,
               useNativeDriver: true,
             }),
-            Animated.timing(scale, {
-              toValue: 1.05,
-              duration: 200,
-              easing: Easing.out(Easing.quad),
+            Animated.spring(scale, {
+              toValue: 1,
+              damping: 15,
+              stiffness: 120,
+              mass: 0.8,
+              useNativeDriver: true,
+            }),
+            Animated.spring(translateY, {
+              toValue: 0,
+              damping: 15,
+              stiffness: 120,
+              mass: 0.8,
               useNativeDriver: true,
             }),
           ]).start(() => {
-            translateX.setValue(SCREEN_WIDTH);
-            scale.setValue(1.05);
-            callbacksRef.current.onHorizontalSwipe(-1);
-            
-            Animated.parallel([
-              Animated.spring(translateX, {
-                toValue: 0,
-                damping: 15,
-                stiffness: 120,
-                mass: 0.8,
-                useNativeDriver: true,
-              }),
-              Animated.spring(scale, {
-                toValue: 1,
-                damping: 15,
-                stiffness: 120,
-                mass: 0.8,
-                useNativeDriver: true,
-              }),
-              Animated.spring(translateY, {
-                toValue: 0,
-                damping: 15,
-                stiffness: 120,
-                mass: 0.8,
-                useNativeDriver: true,
-              }),
-            ]).start(() => {
-              setIsAnimatingToBack(false);
-              callbacksRef.current.onDragState(false);
-            });
+            setIsAnimatingToBack(false);
+            callbacksRef.current.onDragState(false);
           });
+          
+          callbacksRef.current.onHorizontalSwipe(-1);
         } else {
           Animated.parallel([
             Animated.spring(translateX, { toValue: 0, useNativeDriver: true, speed: 18, bounciness: 7 }),
@@ -559,25 +582,12 @@ function VaultCardView({
     }),
   ).current;
  
-  useEffect(() => {
-    if (index === 0 && swipeDirection === 'right') {
-      translateX.setValue(-SCREEN_WIDTH);
-      Animated.spring(translateX, {
-        toValue: 0,
-        damping: 16,
-        stiffness: 120,
-        mass: 0.8,
-        useNativeDriver: true,
-      }).start();
-    }
-  }, [index, swipeDirection]);
 
   const flip = () => {
     void Haptics.selectionAsync();
     const next = flipped ? 0 : 180;
     Animated.timing(rotateY, { toValue: next, duration: 520, useNativeDriver: true }).start();
     setFlipped((value) => !value);
-    onPress();
   };
 
   const frontOpacity = rotateY.interpolate({ inputRange: [0, 90, 180], outputRange: [1, 0, 0] });
@@ -585,16 +595,10 @@ function VaultCardView({
   const frontRotate = rotateY.interpolate({ inputRange: [0, 180], outputRange: ['0deg', '180deg'] });
   const backRotate = rotateY.interpolate({ inputRange: [0, 180], outputRange: ['180deg', '360deg'] });
 
-  const spacingStep = Math.max(10, Math.min(22, 44 / Math.max(2, totalCards)));
   const isVisible = index <= 2 || isAnimatingToBack;
   const opacity = isVisible ? 1 : 0;
-  const stackTranslateY = Math.min(index, 2) * spacingStep;
-  const stackScale = 1 - Math.min(index, 2) * 0.04;
 
-  const animatedScale = scale.interpolate({
-    inputRange: [0.9, 1.1],
-    outputRange: [0.9 * stackScale, 1.1 * stackScale],
-  });
+  const animatedScale = Animated.multiply(fannedScale, scale);
 
   let zIndex = 20 - index;
   if (isAnimatingToBack) {
@@ -610,7 +614,7 @@ function VaultCardView({
           zIndex,
           opacity,
           transform: [
-            { translateY: stackTranslateY },
+            { translateY: fannedTranslateY },
             { translateY },
             { translateX },
             { scale: animatedScale },

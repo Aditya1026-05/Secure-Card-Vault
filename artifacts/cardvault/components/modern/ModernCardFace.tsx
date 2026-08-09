@@ -249,7 +249,8 @@ export function ModernCardFace({ card, back, onBarcodePress }: { card: VaultCard
     graphite: ['#1C1E20', '#0D0F10', '#040405'] as const,
     maroon: ['#221417', '#120A0C', '#050303'] as const,
     brown: ['#1C1613', '#0F0B09', '#040303'] as const,
-  }[card.color] || ['#1C1E20', '#0D0F10', '#040405'];
+    black: ['#1A1A1E', '#0B0B0C', '#000000'] as const,
+  }[card.color] || ['#1A1A1E', '#0B0B0C', '#000000'];
 
   // Front Face (Luxurious minimal metallic card with brushed steel reflection)
   return (
@@ -261,6 +262,9 @@ export function ModernCardFace({ card, back, onBarcodePress }: { card: VaultCard
         end={{ x: 0.9, y: 0.9 }}
         style={StyleSheet.absoluteFill}
       />
+      {/* Classic Card Design Overlay - Soft Glow & Diagonal Reflection Sheen */}
+      <View style={styles.cardGlow} pointerEvents="none" />
+      <View style={styles.metalSheen} pointerEvents="none" />
 
       {/* Mirror Sheen Reflection Catching Light - Softened */}
       <LinearGradient
@@ -333,6 +337,25 @@ const styles = StyleSheet.create({
     padding: 21,
     overflow: 'hidden',
     backgroundColor: '#101010',
+  },
+  cardGlow: {
+    position: 'absolute',
+    width: 210,
+    height: 210,
+    right: -80,
+    top: -80,
+    borderRadius: 110,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  metalSheen: {
+    position: 'absolute',
+    top: -40,
+    right: -90,
+    width: 280,
+    height: 110,
+    borderRadius: 100,
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    transform: [{ rotate: '-22deg' }],
   },
   metalEdge: {
     position: 'absolute',
