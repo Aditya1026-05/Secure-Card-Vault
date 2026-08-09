@@ -19,10 +19,16 @@ export type VaultCard = {
   number: string;
   barcode: string;
   category: CardCategory;
-  color: 'green' | 'lavender' | 'blue' | 'orange' | 'graphite';
+  color: 'green' | 'lavender' | 'blue' | 'orange' | 'graphite' | 'maroon' | 'brown';
   cvv?: string;
   validThru?: string;
   rollNo?: string;
+  accountNumber?: string;
+  routingNumber?: string;
+  pin?: string;
+  notes?: string;
+  ifsc?: string;
+  branch?: string;
 };
 
 const STORAGE_KEY = '@cardvault/cards';
@@ -75,17 +81,20 @@ const seedCards: VaultCard[] = [
 ];
 
 const FACEID_KEY = '@cardvault/faceid';
+const UIMODE_KEY = '@cardvault/uimode';
 
 type CardVaultContextValue = {
   cards: VaultCard[];
   activeId: string | null;
   hydrated: boolean;
   faceIdEnabled: boolean;
+  uiMode: 'classic' | 'modern';
   setActiveId: (id: string | null) => void;
   addCard: (card: Omit<VaultCard, 'id' | 'color'>) => void;
   updateCard: (id: string, updatedFields: Partial<Omit<VaultCard, 'id' | 'color'>>) => void;
   deleteCard: (id: string) => void;
   setFaceIdEnabled: (val: boolean) => void;
+  setUiMode: (mode: 'classic' | 'modern') => void;
 };
 
 const CardVaultContext = createContext<CardVaultContextValue | null>(null);
@@ -95,15 +104,17 @@ export function CardVaultProvider({ children }: { children: React.ReactNode }) {
   const [activeId, setActiveIdState] = useState<string | null>(seedCards[0]?.id ?? null);
   const [hydrated, setHydrated] = useState(false);
   const [faceIdEnabled, setFaceIdEnabledState] = useState(false);
+  const [uiMode, setUiModeState] = useState<'classic' | 'modern'>('modern');
 
   useEffect(() => {
     let mounted = true;
     Promise.all([
       AsyncStorage.getItem(STORAGE_KEY),
       AsyncStorage.getItem(ACTIVE_KEY),
-      AsyncStorage.getItem(FACEID_KEY)
+      AsyncStorage.getItem(FACEID_KEY),
+      AsyncStorage.getItem(UIMODE_KEY)
     ])
-      .then(([storedCards, storedActive, storedFaceId]) => {
+      .then(([storedCards, storedActive, storedFaceId, storedUiMode]) => {
         if (!mounted) return;
         if (storedCards) {
           try {
@@ -115,6 +126,7 @@ export function CardVaultProvider({ children }: { children: React.ReactNode }) {
         }
         if (storedActive) setActiveIdState(storedActive);
         if (storedFaceId) setFaceIdEnabledState(storedFaceId === 'true');
+        if (storedUiMode) setUiModeState(storedUiMode as 'classic' | 'modern');
         setHydrated(true);
       })
       .catch(() => setHydrated(true));
@@ -136,7 +148,7 @@ export function CardVaultProvider({ children }: { children: React.ReactNode }) {
     const newCard: VaultCard = {
       ...card,
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      color: ['green', 'lavender', 'blue', 'orange', 'graphite'][cards.length % 5] as VaultCard['color'],
+      color: ['green', 'lavender', 'blue', 'orange', 'graphite', 'maroon', 'brown'][cards.length % 7] as VaultCard['color'],
     };
     setCards((current) => [newCard, ...current]);
     setActiveId(newCard.id);
@@ -164,19 +176,26 @@ export function CardVaultProvider({ children }: { children: React.ReactNode }) {
     if (hydrated) void AsyncStorage.setItem(FACEID_KEY, String(val));
   };
 
+  const setUiMode = (mode: 'classic' | 'modern') => {
+    setUiModeState(mode);
+    if (hydrated) void AsyncStorage.setItem(UIMODE_KEY, mode);
+  };
+
   const value = useMemo(
     () => ({
       cards,
       activeId,
       hydrated,
       faceIdEnabled,
+      uiMode,
       setActiveId,
       addCard,
       updateCard,
       deleteCard,
       setFaceIdEnabled,
+      setUiMode,
     }),
-    [cards, activeId, hydrated, faceIdEnabled],
+    [cards, activeId, hydrated, faceIdEnabled, uiMode],
   );
 
   return <CardVaultContext.Provider value={value}>{children}</CardVaultContext.Provider>;
