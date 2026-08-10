@@ -92,8 +92,8 @@ type CardVaultContextValue = {
   faceIdEnabled: boolean;
   uiMode: 'classic' | 'modern';
   setActiveId: (id: string | null) => void;
-  addCard: (card: Omit<VaultCard, 'id' | 'color'>) => void;
-  updateCard: (id: string, updatedFields: Partial<Omit<VaultCard, 'id' | 'color'>>) => void;
+  addCard: (card: Omit<VaultCard, 'id'>) => void;
+  updateCard: (id: string, updatedFields: Partial<Omit<VaultCard, 'id'>>) => void;
   deleteCard: (id: string) => void;
   setFaceIdEnabled: (val: boolean) => void;
   setUiMode: (mode: 'classic' | 'modern') => void;
@@ -102,7 +102,7 @@ type CardVaultContextValue = {
 const CardVaultContext = createContext<CardVaultContextValue | null>(null);
 
 export function CardVaultProvider({ children }: { children: React.ReactNode }) {
-  const [cards, setCards] = useState<VaultCard[]>(seedCards);
+  const [cards, setCards] = useState<VaultCard[]>([]);
   const [activeId, setActiveIdState] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [faceIdEnabled, setFaceIdEnabledState] = useState(false);
@@ -118,7 +118,7 @@ export function CardVaultProvider({ children }: { children: React.ReactNode }) {
     ])
       .then(([storedCards, storedActive, storedFaceId, storedUiMode]) => {
         if (!mounted) return;
-        let resolvedCards = seedCards;
+        let resolvedCards: VaultCard[] = [];
         if (storedCards) {
           try {
             const parsed = JSON.parse(storedCards) as VaultCard[];
@@ -127,7 +127,7 @@ export function CardVaultProvider({ children }: { children: React.ReactNode }) {
               resolvedCards = parsed;
             }
           } catch {
-            // Keep the carefully chosen local starter cards if storage is invalid.
+            // Keep empty list if storage is invalid.
           }
         }
         if (storedActive) {
@@ -172,17 +172,16 @@ export function CardVaultProvider({ children }: { children: React.ReactNode }) {
     if (hydrated) void AsyncStorage.setItem(ACTIVE_KEY, id ?? '');
   };
 
-  const addCard = (card: Omit<VaultCard, 'id' | 'color'>) => {
+  const addCard = (card: Omit<VaultCard, 'id'>) => {
     const newCard: VaultCard = {
       ...card,
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      color: ['green', 'lavender', 'blue', 'orange', 'graphite', 'maroon', 'brown', 'black'][cards.length % 8] as VaultCard['color'],
     };
     setCards((current) => [newCard, ...current]);
     setActiveId(newCard.id);
   };
 
-  const updateCard = (id: string, updatedFields: Partial<Omit<VaultCard, 'id' | 'color'>>) => {
+  const updateCard = (id: string, updatedFields: Partial<Omit<VaultCard, 'id'>>) => {
     setCards((current) =>
       current.map((card) => (card.id === id ? { ...card, ...updatedFields } : card))
     );

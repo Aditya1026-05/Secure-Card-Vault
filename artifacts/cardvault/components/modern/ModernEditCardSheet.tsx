@@ -46,6 +46,17 @@ const categoryOptions: CardCategory[] = [
   'Custom',
 ];
 
+const COLOR_OPTIONS: { key: VaultCard['color']; label: string; hex: string }[] = [
+  { key: 'green', label: 'Emerald', hex: '#1C3F30' },
+  { key: 'lavender', label: 'Amethyst', hex: '#3B3254' },
+  { key: 'blue', label: 'Sapphire', hex: '#1C2C3F' },
+  { key: 'orange', label: 'Amber', hex: '#4B3621' },
+  { key: 'graphite', label: 'Titanium', hex: '#36393F' },
+  { key: 'maroon', label: 'Ruby', hex: '#4A1D24' },
+  { key: 'brown', label: 'Bronze', hex: '#3E2E25' },
+  { key: 'black', label: 'Obsidian', hex: '#1A1A1E' },
+];
+
 export function ModernEditCardSheet({ card, onClose }: ModernEditCardSheetProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -66,6 +77,7 @@ export function ModernEditCardSheet({ card, onClose }: ModernEditCardSheetProps)
   const [ifsc, setIfsc] = useState('');
   const [branch, setBranch] = useState('');
   const [dateError, setDateError] = useState('');
+  const [selectedCardColor, setSelectedCardColor] = useState<VaultCard['color']>('green');
 
   // Load card details when card changes
   useEffect(() => {
@@ -84,6 +96,7 @@ export function ModernEditCardSheet({ card, onClose }: ModernEditCardSheetProps)
       setNotes(card.notes || '');
       setIfsc(card.ifsc || '');
       setBranch(card.branch || '');
+      setSelectedCardColor(card.color || 'green');
       setDateError('');
     }
   }, [card]);
@@ -112,7 +125,7 @@ export function ModernEditCardSheet({ card, onClose }: ModernEditCardSheetProps)
     number: number || '0000 0000',
     barcode: barcode || '102306233',
     category,
-    color: card.color,
+    color: selectedCardColor,
     cvv: cvv || undefined,
     validThru: validThru || undefined,
     rollNo: rollNo || undefined,
@@ -138,6 +151,7 @@ export function ModernEditCardSheet({ card, onClose }: ModernEditCardSheetProps)
       number: number.trim() || '—',
       barcode: barcode.trim() || number.trim() || '102306233',
       category,
+      color: selectedCardColor,
       cvv: cvv.trim() || undefined,
       validThru: validThru.trim() || undefined,
       rollNo: rollNo.trim() || undefined,
@@ -357,6 +371,28 @@ export function ModernEditCardSheet({ card, onClose }: ModernEditCardSheetProps)
                 );
               })}
             </ScrollView>
+
+            <Text style={styles.sectionLabel}>CARD COLOR</Text>
+            <View style={styles.colorPickerContainer}>
+              {COLOR_OPTIONS.map((option) => {
+                const active = option.key === selectedCardColor;
+                return (
+                  <Pressable
+                    key={option.key}
+                    onPress={() => {
+                      void Haptics.selectionAsync();
+                      setSelectedCardColor(option.key);
+                    }}
+                    style={[
+                      styles.colorSwatch,
+                      { backgroundColor: option.hex },
+                      active && styles.colorSwatchActive,
+                    ]}
+                    accessibilityLabel={`Select color: ${option.label}`}
+                  />
+                );
+              })}
+            </View>
 
             <Text style={styles.sectionLabel}>SECURE ACCOUNT DETAILS (HIDDEN FROM CARD FACE)</Text>
             {category === 'Credit Card' || category === 'Debit Card' ? (
@@ -666,5 +702,25 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginTop: 4,
     marginLeft: 4,
+  },
+  colorPickerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+    marginTop: 8,
+    marginBottom: 16,
+  },
+  colorSwatch: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.15)',
+  },
+  colorSwatchActive: {
+    borderColor: '#FFFFFF',
+    borderWidth: 2.5,
+    transform: [{ scale: 1.15 }],
   },
 });
