@@ -76,11 +76,13 @@ function ActiveIsland({
   onPress,
   isDragging = false,
   onDrop,
+  onClear,
 }: {
   card: VaultCard | null;
   onPress: () => void;
   isDragging?: boolean;
   onDrop?: () => void;
+  onClear?: () => void;
 }) {
   return (
     <Pressable
@@ -99,7 +101,20 @@ function ActiveIsland({
           <View style={[styles.liveDot, card && { backgroundColor: '#FFFFFF' }]} />
           <Text style={styles.islandEyebrow}>ACTIVE CARD</Text>
         </View>
-        <Ionicons name="shield-checkmark" size={14} color="#8C8C8C" />
+        {card && onClear ? (
+          <Pressable 
+            onPress={(e) => {
+              e.stopPropagation();
+              onClear();
+            }}
+            style={({ pressed }) => pressed && { opacity: 0.7 }}
+            hitSlop={8}
+          >
+            <Text style={{ color: '#FF6b6b', fontSize: 11, fontWeight: 'bold' }}>DEACTIVATE</Text>
+          </Pressable>
+        ) : (
+          <Ionicons name="shield-checkmark" size={14} color="#8C8C8C" />
+        )}
       </View>
       {card ? (
         <View>
@@ -565,6 +580,7 @@ export function ModernHomeScreen() {
             isDragging={isDragging}
             onDrop={handleDropTarget}
             onPress={() => { if (activeCard) setEditingCard(activeCard); }}
+            onClear={() => setActiveId(null)}
           />
         </View>
       )}

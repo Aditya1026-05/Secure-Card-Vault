@@ -1,0 +1,13 @@
+{
+  "name": "cardvault-live-activity",
+  "version": "0.0.0",
+  "description": "Local native Live Activity module for CardVault",
+  "main": "index.ts",
+  "types": "index.ts",
+  "keywords": [
+    "expo-module"
+  ],
+  "peerDependencies": {
+    "expo": "*"
+  }
+}

@@ -77,48 +77,41 @@ struct LockScreenView: View {
     let context: ActivityViewContext<CardVaultAttributes>
     
     var body: some View {
-        if context.state.cardType == "payment" {
-            // Refinement 7 & Lock Screen Rules: Credit/Debit cards MUST NOT be displayed on the Lock Screen.
-            // We render an empty view to hide card information completely.
-            EmptyView()
-        } else {
-            // Library / Loyalty cards are allowed on Lock Screen (showing barcode)
-            HStack(spacing: 16) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(getCardColor(for: context.state.colorName))
-                        .frame(width: 42, height: 42)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.white.opacity(0.15), lineWidth: 1)
-                        )
-                    
-                    Image(systemName: "person.badge.shield.keyhole.fill")
-                        .foregroundColor(.white)
-                        .font(.system(size: 18))
-                }
+        HStack(spacing: 16) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(getCardColor(for: context.state.colorName))
+                    .frame(width: 42, height: 42)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.white.opacity(0.15), lineWidth: 1)
+                    )
                 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(context.state.title)
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundColor(.white)
-                    Text(context.state.subtitle.uppercased())
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(.white.opacity(0.6))
-                }
-                
-                Spacer()
-                
-                if !context.state.barcodeValue.isEmpty {
-                    BarcodeRenderer(value: context.state.barcodeValue, type: context.state.barcodeType)
-                        .frame(width: 130, height: 38)
-                        .background(Color.white)
-                        .cornerRadius(4)
-                }
+                Image(systemName: "person.badge.shield.keyhole.fill")
+                    .foregroundColor(.white)
+                    .font(.system(size: 18))
             }
-            .padding()
-            .background(Color.black.opacity(0.85))
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text(context.state.title)
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundColor(.white)
+                Text(context.state.subtitle.uppercased())
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.6))
+            }
+            
+            Spacer()
+            
+            if !context.state.barcodeValue.isEmpty {
+                BarcodeRenderer(value: context.state.barcodeValue, type: context.state.barcodeType)
+                    .frame(width: 130, height: 38)
+                    .background(Color.white)
+                    .cornerRadius(4)
+            }
         }
+        .padding()
+        .background(Color.black.opacity(0.85))
     }
 }
 
@@ -127,9 +120,7 @@ struct CompactLeadingView: View {
     let context: ActivityViewContext<CardVaultAttributes>
     
     var body: some View {
-        Image(systemName: context.state.cardType == "payment" ? "creditcard.fill" : "person.badge.shield.keyhole.fill")
-            .foregroundColor(.white)
-            .imageScale(.medium)
+        EmptyView()
     }
 }
 
@@ -137,16 +128,7 @@ struct CompactTrailingView: View {
     let context: ActivityViewContext<CardVaultAttributes>
     
     var body: some View {
-        if context.state.cardType == "payment" {
-            // Last 4 digits only
-            Text(context.state.cardNumber.suffix(4))
-                .font(.system(.caption, design: .monospaced))
-                .foregroundColor(.white)
-        } else {
-            Text(context.state.title.prefix(10))
-                .font(.system(size: 11, weight: .bold))
-                .foregroundColor(.white)
-        }
+        EmptyView()
     }
 }
 
@@ -154,9 +136,7 @@ struct MinimalView: View {
     let context: ActivityViewContext<CardVaultAttributes>
     
     var body: some View {
-        Image(systemName: context.state.cardType == "payment" ? "creditcard.fill" : "person.badge.shield.keyhole.fill")
-            .foregroundColor(.white)
-            .imageScale(.small)
+        EmptyView()
     }
 }
 
@@ -165,20 +145,7 @@ struct ExpandedLeadingView: View {
     let context: ActivityViewContext<CardVaultAttributes>
     
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 6)
-                .fill(getCardColor(for: context.state.colorName))
-                .frame(width: 28, height: 20)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.white.opacity(0.2), lineWidth: 1)
-                )
-            
-            Image(systemName: context.state.cardType == "payment" ? "creditcard.fill" : "person.badge.shield.keyhole.fill")
-                .foregroundColor(.white)
-                .font(.system(size: 10))
-        }
-        .padding(.leading, 8)
+        EmptyView()
     }
 }
 
@@ -186,10 +153,7 @@ struct ExpandedTrailingView: View {
     let context: ActivityViewContext<CardVaultAttributes>
     
     var body: some View {
-        Text(context.state.subtitle.uppercased())
-            .font(.system(size: 9, weight: .bold))
-            .foregroundColor(.white.opacity(0.6))
-            .padding(.trailing, 8)
+        EmptyView()
     }
 }
 
@@ -197,12 +161,12 @@ struct ExpandedCenterView: View {
     let context: ActivityViewContext<CardVaultAttributes>
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .center, spacing: 2) {
             Text(context.state.title)
-                .font(.system(size: 14, weight: .bold))
+                .font(.system(size: 15, weight: .bold))
                 .foregroundColor(.white)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 }
 
@@ -234,7 +198,7 @@ struct ExpandedBottomView: View {
             } else if !context.state.barcodeValue.isEmpty {
                 VStack(spacing: 4) {
                     BarcodeRenderer(value: context.state.barcodeValue, type: context.state.barcodeType)
-                        .frame(height: 48)
+                        .frame(height: 68)
                         .background(Color.white)
                         .cornerRadius(6)
                     
@@ -367,7 +331,7 @@ struct CoreImageBarcodeView: View {
             filter.setValue(data, forKey: "inputMessage")
         }
         
-        guard let outputImage = filter?.outputImage else { return nil }
+        guard let outputImage = filter.outputImage else { return nil }
         
         let scaleX: CGFloat = filterName == "CIQRCodeGenerator" ? 10.0 : 6.0
         let scaleY: CGFloat = filterName == "CIQRCodeGenerator" ? 10.0 : 6.0

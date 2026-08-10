@@ -12,6 +12,7 @@ import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import * as LocalAuthentication from 'expo-local-authentication';
 import { useCardVault } from '@/context/CardVaultContext';
 import { useColors } from '@/hooks/useColors';
 
@@ -107,9 +108,30 @@ export function ModernSettingsSheet({ visible, onClose }: ModernSettingsSheetPro
 
             {/* Biometric Switch */}
             <Pressable 
-              onPress={() => {
+              onPress={async () => {
                 void Haptics.selectionAsync();
-                setFaceIdEnabled(!faceIdEnabled);
+                try {
+                  const hasHardware = await LocalAuthentication.hasHardwareAsync();
+                  const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+                  if (hasHardware && isEnrolled) {
+                    const result = await LocalAuthentication.authenticateAsync({
+                      promptMessage: faceIdEnabled 
+                        ? 'Authenticate to disable biometric decryption' 
+                        : 'Authenticate to enable biometric decryption',
+                      fallbackLabel: 'Use Device Passcode',
+                    });
+                    if (result.success) {
+                      setFaceIdEnabled(!faceIdEnabled);
+                      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                    } else {
+                      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+                    }
+                  } else {
+                    setFaceIdEnabled(!faceIdEnabled);
+                  }
+                } catch {
+                  setFaceIdEnabled(!faceIdEnabled);
+                }
               }}
               style={({ pressed }) => [
                 styles.settingsRow,

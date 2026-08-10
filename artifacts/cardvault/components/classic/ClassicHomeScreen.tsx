@@ -662,12 +662,14 @@ function ActiveIsland({
   compact = false,
   isDragging = false,
   onDrop,
+  onClear,
 }: {
   card: VaultCard | null;
   onPress: () => void;
   compact?: boolean;
   isDragging?: boolean;
   onDrop?: () => void;
+  onClear?: () => void;
 }) {
   const colors = useColors();
 
@@ -724,7 +726,20 @@ function ActiveIsland({
           <View style={[styles.liveDot, card && { backgroundColor: colors.primary }]} />
           <Text style={styles.islandEyebrow}>ACTIVE ISLAND</Text>
         </View>
-        <Ionicons name="arrow-up-right-box" size={16} color={colors.mutedForeground} />
+        {card && onClear ? (
+          <Pressable 
+            onPress={(e) => {
+              e.stopPropagation();
+              onClear();
+            }}
+            style={({ pressed }) => pressed && { opacity: 0.7 }}
+            hitSlop={8}
+          >
+            <Text style={{ color: '#FF6b6b', fontSize: 11, fontWeight: 'bold' }}>DEACTIVATE</Text>
+          </Pressable>
+        ) : (
+          <Ionicons name="arrow-up-right-box" size={16} color={colors.mutedForeground} />
+        )}
       </View>
       {card ? (
         <View>
@@ -1197,9 +1212,30 @@ function SettingsSheet({ visible, onClose }: { visible: boolean; onClose: () => 
             </Pressable>
 
             <Pressable 
-              onPress={() => {
+              onPress={async () => {
                 void Haptics.selectionAsync();
-                setFaceIdEnabled(!faceIdEnabled);
+                try {
+                  const hasHardware = await LocalAuthentication.hasHardwareAsync();
+                  const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+                  if (hasHardware && isEnrolled) {
+                    const result = await LocalAuthentication.authenticateAsync({
+                      promptMessage: faceIdEnabled 
+                        ? 'Authenticate to disable biometric decryption' 
+                        : 'Authenticate to enable biometric decryption',
+                      fallbackLabel: 'Use Device Passcode',
+                    });
+                    if (result.success) {
+                      setFaceIdEnabled(!faceIdEnabled);
+                      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                    } else {
+                      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+                    }
+                  } else {
+                    setFaceIdEnabled(!faceIdEnabled);
+                  }
+                } catch {
+                  setFaceIdEnabled(!faceIdEnabled);
+                }
               }}
               style={({ pressed }) => [
                 styles.settingsRow,
@@ -1786,6 +1822,7 @@ export function ClassicHomeScreen() {
             isDragging={isDragging}
             onDrop={handleDropTarget}
             onPress={() => { if (activeCard) setEditingCard(activeCard); }}
+            onClear={() => setActiveId(null)}
           />
         </View>
       )}

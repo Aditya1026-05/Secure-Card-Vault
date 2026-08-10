@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { Alert } from 'react-native';
 import { useLiveActivitySync } from '../hooks/useLiveActivitySync';
 
 export type CardCategory =
@@ -102,7 +103,7 @@ const CardVaultContext = createContext<CardVaultContextValue | null>(null);
 
 export function CardVaultProvider({ children }: { children: React.ReactNode }) {
   const [cards, setCards] = useState<VaultCard[]>(seedCards);
-  const [activeId, setActiveIdState] = useState<string | null>(seedCards[0]?.id ?? null);
+  const [activeId, setActiveIdState] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [faceIdEnabled, setFaceIdEnabledState] = useState(false);
   const [uiMode, setUiModeState] = useState<'classic' | 'modern'>('modern');
@@ -117,15 +118,30 @@ export function CardVaultProvider({ children }: { children: React.ReactNode }) {
     ])
       .then(([storedCards, storedActive, storedFaceId, storedUiMode]) => {
         if (!mounted) return;
+        let resolvedCards = seedCards;
         if (storedCards) {
           try {
             const parsed = JSON.parse(storedCards) as VaultCard[];
-            if (Array.isArray(parsed) && parsed.length > 0) setCards(parsed);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setCards(parsed);
+              resolvedCards = parsed;
+            }
           } catch {
             // Keep the carefully chosen local starter cards if storage is invalid.
           }
         }
-        if (storedActive) setActiveIdState(storedActive);
+        if (storedActive) {
+          const card = resolvedCards.find(c => c.id === storedActive);
+          if (card && card.category !== 'Credit Card' && card.category !== 'Debit Card') {
+            setActiveIdState(storedActive);
+          } else {
+            const fallback = resolvedCards.find(c => c.category !== 'Credit Card' && c.category !== 'Debit Card');
+            setActiveIdState(fallback?.id ?? null);
+          }
+        } else {
+          const fallback = resolvedCards.find(c => c.category !== 'Credit Card' && c.category !== 'Debit Card');
+          setActiveIdState(fallback?.id ?? null);
+        }
         if (storedFaceId) setFaceIdEnabledState(storedFaceId === 'true');
         if (storedUiMode) setUiModeState(storedUiMode as 'classic' | 'modern');
         setHydrated(true);
@@ -141,6 +157,17 @@ export function CardVaultProvider({ children }: { children: React.ReactNode }) {
   }, [cards, hydrated]);
 
   const setActiveId = (id: string | null) => {
+    if (id) {
+      const card = cards.find((c) => c.id === id);
+      if (card && (card.category === 'Credit Card' || card.category === 'Debit Card')) {
+        Alert.alert(
+          'Security Constraint',
+          'For your security, payment cards (Credit/Debit) cannot be set as active or shown in the Dynamic Island.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+    }
     setActiveIdState(id);
     if (hydrated) void AsyncStorage.setItem(ACTIVE_KEY, id ?? '');
   };
@@ -165,8 +192,9 @@ export function CardVaultProvider({ children }: { children: React.ReactNode }) {
     setCards((current) => {
       const remaining = current.filter((card) => card.id !== id);
       if (activeId === id) {
-        setActiveIdState(remaining[0]?.id ?? null);
-        if (hydrated) void AsyncStorage.setItem(ACTIVE_KEY, remaining[0]?.id ?? '');
+        const nextActive = remaining.find((c) => c.category !== 'Credit Card' && c.category !== 'Debit Card');
+        setActiveIdState(nextActive?.id ?? null);
+        if (hydrated) void AsyncStorage.setItem(ACTIVE_KEY, nextActive?.id ?? '');
       }
       return remaining;
     });
