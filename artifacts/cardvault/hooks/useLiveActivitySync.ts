@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Platform } from 'react-native';
+import { Platform, AppState, AppStateStatus } from 'react-native';
 import { VaultCard } from '../context/CardVaultContext';
 
 // Safely import the native module proxy only on iOS to avoid crashes on other platforms
@@ -36,39 +36,55 @@ export function useLiveActivitySync(activeId: string | null, cards: VaultCard[],
       return;
     }
 
-    const activeCard = cards.find((c) => c.id === activeId);
+    const syncActivity = () => {
+      const activeCard = cards.find((c) => c.id === activeId);
 
-    if (activeCard) {
-      const isCreditOrDebit = activeCard.category === 'Credit Card' || activeCard.category === 'Debit Card';
-      const cardType = isCreditOrDebit ? 'payment' : 'library';
-      
-      // SECURITY: Mask card number inside JS. Send ONLY last 4 digits and mask characters.
-      // CVV, PIN, and other credentials are completely excluded.
-      const rawNumber = activeCard.number || '';
-      const maskedCardNumber = isCreditOrDebit 
-        ? rawNumber.replace(/\d(?=\d{4})/g, '•')
-        : '';
+      if (activeCard) {
+        const isCreditOrDebit = activeCard.category === 'Credit Card' || activeCard.category === 'Debit Card';
+        const cardType = isCreditOrDebit ? 'payment' : 'library';
         
-      const validThru = isCreditOrDebit ? (activeCard.validThru || '') : '';
-      
-      const barcodeValue = !isCreditOrDebit 
-        ? (activeCard.barcode || activeCard.rollNo || activeCard.number || '') 
-        : '';
-      const barcodeType = !isCreditOrDebit ? detectBarcodeType(barcodeValue) : 'code39';
+        // SECURITY: Mask card number inside JS. Send ONLY last 4 digits and mask characters.
+        // CVV, PIN, and other credentials are completely excluded.
+        const rawNumber = activeCard.number || '';
+        const maskedCardNumber = isCreditOrDebit 
+          ? rawNumber.replace(/\d(?=\d{4})/g, '•')
+          : '';
+          
+        const validThru = isCreditOrDebit ? (activeCard.validThru || '') : '';
+        
+        const barcodeValue = !isCreditOrDebit 
+          ? (activeCard.barcode || activeCard.rollNo || activeCard.number || '') 
+          : '';
+        const barcodeType = !isCreditOrDebit ? detectBarcodeType(barcodeValue) : 'code39';
 
-      CardVaultLiveActivity.startOrUpdateActivity(
-        activeCard.title,
-        activeCard.institution || activeCard.category,
-        cardType,
-        maskedCardNumber,
-        validThru,
-        barcodeValue,
-        barcodeType,
-        activeCard.color || 'graphite'
-      );
-    } else {
-      // End any running Live Activities if no card is selected/active
-      CardVaultLiveActivity.endActivity();
-    }
+        CardVaultLiveActivity.startOrUpdateActivity(
+          activeCard.title,
+          activeCard.institution || activeCard.category,
+          cardType,
+          maskedCardNumber,
+          validThru,
+          barcodeValue,
+          barcodeType,
+          activeCard.color || 'graphite'
+        );
+      } else {
+        // End any running Live Activities if no card is selected/active
+        CardVaultLiveActivity.endActivity();
+      }
+    };
+
+    // Run synchronization immediately
+    syncActivity();
+
+    // Re-synchronize when the app comes back to the foreground to avoid iOS startup race conditions
+    const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
+      if (nextAppState === 'active') {
+        syncActivity();
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
   }, [activeId, cards, hydrated]);
 }

@@ -12,6 +12,7 @@ Secure Card Vault is a premium, high-security React Native & Expo mobile applica
 *   **Compliant Code 39 Symbology:** The app encodes roll numbers and ID values using mathematically correct **Code 39 barcode standards** (including start/stop delimiters `*`). You can scan the barcode on the back view with any physical turnstile or scan app, and it will decode instantly to your actual ID number.
 *   **Biometric Decryption (Face ID / Passcode):** Vault details can be locked behind your device's biometric sensors. Click the eye icon on bank cards to authenticate and reveal secure details.
 *   **On-Device Storage:** All vault details are saved strictly in your device's local memory using React Native's asynchronous storage. No data is ever uploaded to external servers.
+*   **Dynamic Island & Live Activities:** Show active membership/loyalty cards in your Dynamic Island (expandable by long-pressing to view centered card details and a large scanner barcode) and as a sleek, functional ticket on the Lock Screen for quick scans.
 
 ---
 
@@ -105,3 +106,36 @@ The biometric permissions are configured in `app.json` under `ios.infoPlist` and
   }
 }
 ```
+
+---
+
+## Dynamic Island & Live Activities (iOS)
+
+CardVault features a native iOS Swift target extension integration that enables Live Activities and Dynamic Island support.
+
+### How it Works
+1.  **Compact View (Home Screen):** Set to `EmptyView()` so the Dynamic Island remains in its **normal, default black pill state** when not expanded (no text/icon leak) to avoid stretching.
+2.  **Expanded View (Long Press):** Displays the **Card Title centered** at the top, a **large scan-ready barcode** (height `68` or custom) centered below, and the holder's ID number.
+3.  **Lock Screen View:** Displays a **sleek scanner ticket** (card color, card name, and barcode) on the Lock Screen and Notification Center for easy scanning.
+4.  **Auto-foreground Synchronization:** Includes an `AppState` listener in the `useLiveActivitySync` hook. If you close the app from recent tasks (force-quit) and open it again, the app automatically restarts the Live Activity for the active card as soon as the app transitions to the active foreground state.
+
+### Security Constraints
+*   **Payment Card Block:** Credit and debit cards **cannot** be activated or displayed in the Dynamic Island / Lock Screen. If a user drops a payment card into the active zone, the app displays a warning popup: *"For your security, payment cards (Credit/Debit) cannot be set as active or shown in the Dynamic Island."*
+*   **Biometric Settings Guard:** Activating or deactivating the *Biometric Decryption* settings switch requires device biometric authentication (Face ID or Passcode confirmation) to prevent unauthorized setting changes.
+
+### Running & Compiling via Xcode
+Because this uses a native Swift target widget extension, you must compile it via Xcode:
+
+1.  Open the workspace:
+    ```bash
+    open ios/CardVault.xcworkspace
+    ```
+2.  Select the top-level **`CardVault`** blue project file in the left sidebar.
+3.  Go to the **`Signing & Capabilities`** tab at the top.
+4.  Under Targets, select the **`CardVault`** target and select your **`Team`** in the dropdown.
+5.  Under Targets, select the **`widget`** target and select the **same `Team`** in the dropdown.
+6.  Connect your physical iPhone or choose a simulator, and press **`Cmd + R`** (or click the Play button) to build and run.
+
+### Controlling the Live Activity
+*   **Activate:** Drag and drop any membership, gym, library, or student ID card to the **Active zone** at the top of the home screen stack.
+*   **Deactivate:** Tap the red **`DEACTIVATE`** button inside the active drop target zone in the app to immediately terminate the Live Activity session, restoring the Dynamic Island and Lock Screen to their default unoccupied states.
