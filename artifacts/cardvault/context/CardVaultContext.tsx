@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { useLiveActivitySync } from '../hooks/useLiveActivitySync';
 
 export type CardCategory =
   | 'Library'
@@ -180,6 +181,8 @@ export function CardVaultProvider({ children }: { children: React.ReactNode }) {
     setUiModeState(mode);
     if (hydrated) void AsyncStorage.setItem(UIMODE_KEY, mode);
   };
+
+  useLiveActivitySync(activeId, cards, hydrated);
 
   const value = useMemo(
     () => ({

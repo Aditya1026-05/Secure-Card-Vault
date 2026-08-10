@@ -15,8 +15,13 @@
     },
     "ios": {
       "supportsTablet": false,
+      "bundleIdentifier": "com.aditya1026.securecardvault",
       "infoPlist": {
-        "NSFaceIDUsageDescription": "Allow CardVault to use Face ID to securely reveal your credit and debit card information."
+        "NSFaceIDUsageDescription": "Allow CardVault to use Face ID to securely reveal your credit and debit card information.",
+        "NSSupportsLiveActivities": true
+      },
+      "entitlements": {
+        "com.apple.security.application-groups": ["group.com.aditya1026.securecardvault"]
       }
     },
     "android": {},
@@ -37,7 +42,8 @@
         {
           "faceIDPermission": "Allow CardVault to use Face ID to securely reveal your credit and debit card information."
         }
-      ]
+      ],
+      "@bacons/apple-targets"
     ],
     "experiments": {
       "typedRoutes": true,
